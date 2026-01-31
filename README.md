@@ -1,6 +1,3 @@
-<img width="915" height="915" alt="image" src="https://github.com/user-attachments/assets/4195dd2a-a70b-49b9-bd47-7fa503822cb3" />
-
-
 # 🐧 天津美术学院
 
 ### 基于 Penguin Magic 的 AI 图像桌面管理工具
