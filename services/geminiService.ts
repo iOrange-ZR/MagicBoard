@@ -5,7 +5,7 @@ import { GeneratedContent, CreativeIdea, SmartPlusConfig, BPField, BPAgentModel,
 
 let ai: GoogleGenAI | null = null;
 
-// 贞贞API配置存储
+// API配置存储
 let thirdPartyConfig: ThirdPartyApiConfig | null = null;
 
 export const setThirdPartyConfig = (config: ThirdPartyApiConfig | null) => {
@@ -117,8 +117,8 @@ const convertAspectRatio = (ratio: string): NanoBananaRequest['aspect_ratio'] | 
   return ratio as NanoBananaRequest['aspect_ratio'];
 };
 
-// 贞贞API图片生成 - 支持文生图和图生图（支持多图）
-// 本地版本：直接调用贞贞API
+// API图片生成 - 支持文生图和图生图（支持多图）
+// 本地版本：直接调用API
 export const editImageWithThirdPartyApi = async (
   files: File[], // 支持多图，空数组为文生图模式
   prompt: string, 
@@ -126,15 +126,15 @@ export const editImageWithThirdPartyApi = async (
   creativeIdeaCost?: number // 创意库定义的扣费金额（本地版不用）
 ): Promise<GeneratedContent> => {
   if (!thirdPartyConfig || !thirdPartyConfig.enabled) {
-    throw new Error("贞贞API未启用");
+    throw new Error("API未启用");
   }
   
   // 本地版本：需要前端配置 API Key
   if (!thirdPartyConfig.apiKey) {
-    throw new Error("请先配置贞贞API Key");
+    throw new Error("请先配置API Key");
   }
   if (!thirdPartyConfig.baseUrl) {
-    throw new Error("请先配置贞贞API Base URL");
+    throw new Error("请先配置API Base URL");
   }
   
   // 处理 Auto 宽高比：图生图模式下不传 aspect_ratio，让API根据输入图片尺寸自动生成
@@ -163,7 +163,7 @@ export const editImageWithThirdPartyApi = async (
   }
   // 图生图 + Auto：不添加 aspect_ratio 字段，让API使用输入图片的原始尺寸
   
-  console.log('[贞贞API] 图生图请求参数:', {
+  console.log('[API] 图生图请求参数:', {
     aspectRatio: config.aspectRatio,
     isAutoAspectRatio,
     imageSize: config.imageSize,
@@ -184,11 +184,11 @@ export const editImageWithThirdPartyApi = async (
     if (files.length > 1) {
       const imageLabels = files.map((_, idx) => `Image${idx + 1}`).join(', ');
       requestBody.prompt = `[输入图片按顺序: ${imageLabels}]\n\n${prompt}`;
-      console.log(`[贞贞多图] 检测到 ${files.length} 张图片，已标注顺序:`, imageLabels);
+      console.log(`[多图] 检测到 ${files.length} 张图片，已标注顺序:`, imageLabels);
     }
   }
 
-  // 直接调用贞贞API
+  // 直接调用API
   const url = `${thirdPartyConfig.baseUrl.replace(/\/$/, '')}/v1/images/generations`;
   
   const response = await withRetry(async () => {
@@ -232,23 +232,23 @@ export const editImageWithThirdPartyApi = async (
   return result;
 };
 
-// 贞贞API文字处理/图片分析 (Chat Completions)
-// 本地版本：直接调用贞贞API
+// API文字处理/图片分析 (Chat Completions)
+// 本地版本：直接调用API
 export const chatWithThirdPartyApi = async (
   systemPrompt: string,
   userMessage: string,
   imageFile?: File
 ): Promise<string> => {
   if (!thirdPartyConfig || !thirdPartyConfig.enabled) {
-    throw new Error("贞贞API未启用");
+    throw new Error("API未启用");
   }
   
   // 本地版本：需要前端配置 API Key
   if (!thirdPartyConfig.apiKey) {
-    throw new Error("请先配置贞贞API Key");
+    throw new Error("请先配置API Key");
   }
   if (!thirdPartyConfig.baseUrl) {
-    throw new Error("请先配置贞贞API Base URL");
+    throw new Error("请先配置API Base URL");
   }
   
   // 构建用户消息内容 - 根据API文档格式
@@ -281,7 +281,7 @@ export const chatWithThirdPartyApi = async (
     stream: false
   };
 
-  // 直接调用贞贞API
+  // 直接调用API
   const url = `${thirdPartyConfig.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
   
   const response = await withRetry(async () => {
@@ -311,7 +311,7 @@ export const chatWithThirdPartyApi = async (
 };
 
 export const editImageWithGemini = async (files: File[], prompt: string, config: ImageEditConfig, creativeIdeaCost?: number): Promise<GeneratedContent> => {
-  // 如果启用了贞贞API，使用贞贞API
+  // 如果启用了API，使用API
   if (thirdPartyConfig && thirdPartyConfig.enabled) {
     return editImageWithThirdPartyApi(files, prompt, config, creativeIdeaCost);
   }
@@ -408,7 +408,7 @@ export const editImageWithGemini = async (files: File[], prompt: string, config:
 
 // --- BP Agent Logic ---
 
-// 贞贞API的BP Agent任务（分析图片或纯文本）
+// API的BP Agent任务（分析图片或纯文本）
 const runBPAgentTaskWithThirdParty = async (file: File | null, instruction: string): Promise<string> => {
   const systemInstruction = file 
     ? `You are an AI analysis agent. 
@@ -422,17 +422,17 @@ Output Rule: Return ONLY the result string. Do not include labels, markdown, or 
 };
 
 const runBPAgentTask = async (file: File | null, instruction: string, model: BPAgentModel): Promise<string> => {
-    // 如果启用了贞贞API，使用贞贞Chat API
+    // 如果启用了 API，使用第三方 Chat API
     if (thirdPartyConfig && thirdPartyConfig.enabled) {
         // 本地版本：检查是否有API Key
         if (!thirdPartyConfig.apiKey) {
-            throw new Error("请先配置贞贞API Key");
+            throw new Error("请先配置API Key");
         }
         return runBPAgentTaskWithThirdParty(file, instruction);
     }
     
     // 使用 Gemini API
-    if (!ai) throw new Error("请先设置 Gemini API Key 或启用贞贞API");
+    if (!ai) throw new Error("请先设置 Gemini API Key 或启用API");
     
     // 构建内容部分
     const parts: Part[] = [];
@@ -660,11 +660,11 @@ export const generateCreativePromptFromImage = async ({
     keyword = '',
     smartPlusConfig,
 }: GeneratePromptParams): Promise<string> => {
-  // 如果启用了贞贞API，使用贞贞API
+  // 如果启用了API，使用API
   const useThirdParty = thirdPartyConfig && thirdPartyConfig.enabled && thirdPartyConfig.apiKey;
   
   if (!useThirdParty && !ai) {
-    throw new Error("请先设置 Gemini API Key 或配置贞贞API");
+    throw new Error("请先设置 Gemini API Key 或配置API");
   }
   
   const model = 'gemini-3-pro-preview';
@@ -730,7 +730,7 @@ ${keyword}
   
   userMessage += "\n\nNow, based on the provided image and all the rules, generate the final, synthesized prompt.";
   
-  // 使用贞贞API进行图片分析
+  // 使用API进行图片分析
   if (useThirdParty) {
     return chatWithThirdPartyApi(systemInstruction, userMessage, file);
   }
@@ -771,7 +771,7 @@ export const optimizePrompt = async (userPrompt: string): Promise<string> => {
   const useThirdParty = thirdPartyConfig && thirdPartyConfig.enabled && thirdPartyConfig.apiKey;
   
   if (!useThirdParty && !ai) {
-    throw new Error("请先设置 Gemini API Key 或配置贞贞API");
+    throw new Error("请先设置 Gemini API Key 或配置API");
   }
   
   const model = 'gemini-2.0-flash';
@@ -797,7 +797,7 @@ Rules:
 
 Output the optimized prompt directly:`;
   
-  // 使用贞贞API - 直接复用现有函数，不传图片
+  // 使用API - 直接复用现有函数，不传图片
   if (useThirdParty) {
     return chatWithThirdPartyApi(systemInstruction, userMessage);
   }
@@ -829,7 +829,7 @@ export const autoClassifyCreative = async (title: string, prompt: string): Promi
   const useThirdParty = thirdPartyConfig && thirdPartyConfig.enabled && thirdPartyConfig.apiKey;
   
   if (!useThirdParty && !ai) {
-    throw new Error("请先设置 Gemini API Key 或配置贞贞API");
+    throw new Error("请先设置 Gemini API Key 或配置API");
   }
   
   const validCategories = CREATIVE_CATEGORIES.map(c => c.key).join(', ');

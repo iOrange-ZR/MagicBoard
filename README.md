@@ -1,37 +1,30 @@
 <img width="915" height="915" alt="image" src="https://github.com/user-attachments/assets/4195dd2a-a70b-49b9-bd47-7fa503822cb3" />
 
 
-# 🐧 企鹅工坊 Penguin Magic
+# 🐧 天津美术学院
 
-### 全球首款 AI 图像桌面管理工具
+### 基于 Penguin Magic 的 AI 图像桌面管理工具
 
 **告别混乱，让创意井井有条**
-
-[![Made with React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](https://typescriptlang.org)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
 
 </div>
 
 ---
-之前的不记录了
-V0.2.4 增加导入创意库：https://opennana.com/awesome-prompt-gallery/   【创意库】-【智能导入】-【输入编号】
-增加红房子黄房子来判断后端服务是否正常运行
-最近遇到几次后端服务挂掉的情况，希望大家反馈，至今未排查出原因！
-V0.2.3 最新分支支持多并发
+V0.2.4 增加导入创意库：【创意库】-【智能导入】-【输入编号】
+增加红房子黄房子来判断后端服务是否正常运行。V0.2.3 最新分支支持多并发。
 
 
 
 
 
-## 🌟 为什么选择企鹅工坊？
+## 🌟 为什么选择本工具？
 
 传统 AI 生图工具的痛点：
 - ❌ 生成的图片散落各处，找不到
 - ❌ 没有管理功能，越用越乱
 - ❌ 无法快速对比和整理作品
 
-**企鹅工坊** 重新定义 AI 创作体验：
+**本工具** 重新定义 AI 创作体验：
 
 > 🎯 **生成即管理** — 不只是生图，更是一个可视化创意工作台
 
@@ -77,37 +70,62 @@ V0.2.3 最新分支支持多并发
 
 ```bash
 # 1. 首次使用，双击运行
-install.bat
+Install.bat
 
 # 2. 以后每次启动，双击运行
-start.bat
+Start.bat
 
 # 3. 自动打开浏览器
 http://127.0.0.1:8765
 ```
-每次更新后都要如上操作一遍！！！
+每次更新代码后需重新执行 **Install.bat**（会重新 build 前端），再按 **Start.bat** 启动。
 
-### 方式二：手动启动
+---
+
+### 方式二：手动启动（生产模式，访问 8765）
+
+后端会托管已构建的前端（`dist`），浏览器只访问 **8765** 一个端口。
 
 ```bash
-# 1. 安装前端依赖
+# 1. 安装依赖（项目根目录）
 npm install
+cd backend-nodejs && npm install && cd ..
 
-# 2. 安装后端依赖
-cd backend-nodejs
-npm install
-cd ..
-
-# 3. 构建前端
+# 2. 构建前端（项目根目录）
 npm run build
 
-# 4. 启动 Node.js 后端服务
+# 3. 启动后端（会托管 dist 并提供 API）
 cd backend-nodejs
 node src/server.js
 
-# 5. 打开浏览器
+# 4. 浏览器打开
 http://127.0.0.1:8765
 ```
+
+- **后端**：`http://127.0.0.1:8765`（API + 静态前端）
+- 关闭后端用 `Ctrl+C`；停止后需重新执行第 3 步再启动。
+
+---
+
+### 方式三：开发模式（前端热更新，访问 5176）
+
+前端用 Vite 开发服务器（热更新），API 通过代理转发到后端 8765。
+
+```bash
+# 终端 1：启动后端
+cd backend-nodejs
+node src/server.js
+
+# 终端 2：启动前端（项目根目录）
+npm run dev
+
+# 浏览器打开（注意是 5176）
+http://localhost:5176
+```
+
+- **前端**：`http://localhost:5176`（Vite，/api、/files 等会代理到 8765）
+- **后端**：`http://127.0.0.1:8765`（仅 API，不直接访问）
+- 修改前端代码会自动刷新；修改后端需重启终端 1。
 
 ### 环境要求
 
@@ -124,29 +142,20 @@ http://127.0.0.1:8765
 | 样式方案 | Tailwind CSS |
 | 构建工具 | Vite |
 | 后端服务 | Node.js + Express |
-| AI 能力 | Gemini API / 贞贞 API |
-
----
-
-## 📞 联系我们
-
-- **Q群** — 854266067
-- **微信** — Lovexy_0222
-- **技术支持** — 企鹅 · 无我
+| AI 能力 | Gemini API / API |
 
 ---
 
 ## 🙏 特别鸣谢
 
-**T8** — 感谢提供视频宣传支持
-**大熊** — 感谢提供视频宣传支持
+本项目基于 [Penguin-Magic](https://github.com/PenguinTeo/Penguin-Magic/tree/main) **v1.6.0** 版本魔改，感谢原版作者 [PenguinTeo](https://github.com/PenguinTeo) 的开源贡献。
 
 ---
 
 <div align="center">
 
-**企鹅工坊** — 让 AI 创作不再凌乱
+**天津美术学院** — 
 
-Made with ❤️ by Penguin Team
+Made with ❤️ by TAFA
 
 </div>

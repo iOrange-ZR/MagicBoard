@@ -213,6 +213,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                 />
             </div>
 
+            <div className={`w-8 h-px ${isLight ? 'bg-gray-200' : 'bg-white/10'} my-1`} />
+
+            {/* ComfyUI 分组：本地/局域网 ComfyUI */}
+            <div className="flex flex-col gap-1.5">
+                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>ComfyUI</span>
+                <DraggableButton 
+                    type="comfyui" 
+                    icon={<Icons.Workflow size={16} />} 
+                    label="ComfyUI" 
+                    onDragStart={onDragStart} 
+                    onClick={() => onAdd('comfyui')} 
+                    isLight={isLight}
+                />
+            </div>
+
         </div>
         </div>
 
@@ -610,7 +625,9 @@ const DraggableButton = ({ type, icon, label, onDragStart, onClick, isLight = fa
             className="group relative cursor-grab active:cursor-grabbing select-none"
         >
             <div className={`w-8 h-8 rounded-lg ${btnBg} ${btnText} ${btnHoverText} ${btnHoverBg} hover:scale-105 transition-all shadow-inner border border-transparent hover:border-white/10 active:scale-95 flex items-center justify-center`}>
-                 {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 16 }) : icon}
+                 <span className="inline-flex items-center justify-center w-4 h-4 shrink-0">
+                   {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 16, className: 'shrink-0 block' }) : icon}
+                 </span>
             </div>
             {/* Tooltip */}
             <div className={`absolute left-full top-1/2 -translate-y-1/2 ml-3 px-2 py-1 ${tooltipBg} border ${tooltipBorder} rounded text-[10px] font-medium ${tooltipText} opacity-0 group-hover:opacity-100 transition-all pointer-events-none whitespace-nowrap z-50 shadow-lg translate-x-[-5px] group-hover:translate-x-0`}>

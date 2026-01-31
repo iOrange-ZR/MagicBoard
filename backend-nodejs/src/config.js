@@ -52,6 +52,7 @@ const config = {
   SETTINGS_FILE: path.join(BASE_DIR, 'data', 'settings.json'),
   DESKTOP_ITEMS_FILE: path.join(BASE_DIR, 'data', 'desktop_items.json'),
   CANVAS_FILE: path.join(BASE_DIR, 'data', 'canvas_list.json'), // 画布列表
+  COMFYUI_WORKFLOWS_FILE: path.join(BASE_DIR, 'data', 'comfyui_workflows.json'), // ComfyUI 工作流配置列表
   
   // 业务配置
   MAX_HISTORY_COUNT: 500,

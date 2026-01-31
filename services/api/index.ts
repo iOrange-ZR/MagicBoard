@@ -48,13 +48,15 @@ async function request<T>(
 
     // 处理 HTTP 错误状态码
     if (!response.ok) {
-      // 尝试解析错误响应
+      // 尝试解析错误响应（后端可能返回 error 为对象，如 { type, message, details, extra_info }，需统一为字符串避免 React #31）
       try {
         const errorData = await response.json();
+        const raw = errorData.error ?? errorData.message;
+        const errStr = typeof raw === 'string' ? raw : (raw && typeof raw === 'object' && 'message' in raw && typeof (raw as { message?: unknown }).message === 'string' ? (raw as { message: string }).message : raw != null ? JSON.stringify(raw) : '');
         return {
           success: false,
-          error: errorData.error || `HTTP ${response.status}: ${response.statusText}`,
-          message: errorData.message,
+          error: errStr || `HTTP ${response.status}: ${response.statusText}`,
+          message: typeof errorData.message === 'string' ? errorData.message : undefined,
         };
       } catch {
         return {

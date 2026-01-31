@@ -76,7 +76,7 @@ export function getVeoConfig(): VeoConfig {
   }
   return {
     apiKey: '',
-    baseUrl: 'https://ai.t8star.cn'
+    baseUrl: 'https://api.bltcy.ai'
   };
 }
 

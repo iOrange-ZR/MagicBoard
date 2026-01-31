@@ -16,6 +16,7 @@ const desktopRouter = require('./routes/desktop');
 const imageOpsRouter = require('./routes/imageOps');
 const canvasRouter = require('./routes/canvas');
 const runninghubRouter = require('./routes/runninghub');
+const comfyuiRouter = require('./routes/comfyui');
 
 const app = express();
 
@@ -53,7 +54,7 @@ app.use((req, res, next) => {
 // ============== 初始化目录和数据文件 ==============
 function initializeApp() {
   console.log('=' .repeat(50));
-  console.log('🐧 企鹅艾洛魔法世界 - Node.js后端服务');
+  console.log('天津美术学院 · Node.js 后端服务');
   console.log('=' .repeat(50));
   console.log();
   
@@ -104,6 +105,7 @@ app.use('/api/desktop', desktopRouter);
 app.use('/api/image-ops', imageOpsRouter);
 app.use('/api/canvas', canvasRouter);
 app.use('/api/runninghub', runninghubRouter);
+app.use('/api/comfyui', comfyuiRouter);
 
 // 服务状态检查
 app.get('/api/status', (req, res) => {

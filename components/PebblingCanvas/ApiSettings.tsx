@@ -40,7 +40,7 @@ const ApiSettings: React.FC<ApiSettingsProps> = ({ isOpen, onClose }) => {
   
   const [config, setConfig] = useState<ThirdPartyApiConfig>({
     enabled: true,
-    baseUrl: 'https://ai.t8star.cn',
+    baseUrl: 'https://api.bltcy.ai',
     apiKey: '',
     model: 'nano-banana-2',
     chatModel: 'gemini-2.5-pro'
@@ -177,7 +177,7 @@ const ApiSettings: React.FC<ApiSettingsProps> = ({ isOpen, onClose }) => {
                   </button>
                 </div>
                 <p className="mt-1 text-xs text-white/40">
-                  获取 API Key: <a href="https://ai.t8star.cn/register?aff=64350e39653" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">ai.t8star.cn</a>
+                  获取 API Key: <a href="https://api.bltcy.ai/register?aff=64350e39653" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">api.bltcy.ai</a>
                 </p>
               </div>
               <div>
@@ -186,7 +186,7 @@ const ApiSettings: React.FC<ApiSettingsProps> = ({ isOpen, onClose }) => {
                   type="text"
                   value={config.baseUrl}
                   onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
-                  placeholder="https://ai.t8star.cn"
+                  placeholder="https://api.bltcy.ai"
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-blue-500/50"
                 />
               </div>

@@ -11,6 +11,8 @@ import PresetInstantiationModal from './PresetInstantiationModal';
 import CanvasNameBadge from './CanvasNameBadge';
 import { editImageWithGemini, chatWithThirdPartyApi, getThirdPartyConfig, ImageEditConfig } from '../../services/geminiService';
 import { runAIApp, getAIAppInfo } from '../../services/api/runninghub';
+import { comfyuiSubmitPrompt, comfyuiGetHistory, getComfyUIConfig, getComfyUIWorkflows } from '../../services/api/comfyui';
+import type { ComfyUIWorkflowConfig, ComfyUIAddress } from '../../services/api/comfyui';
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
 import * as canvasApi from '../../services/api/canvas';
 import { downloadRemoteToOutput } from '../../services/api/files';
@@ -18,10 +20,10 @@ import { Icons } from './Icons';
 
 // === 画布用API适配器，桥接主项目的geminiService ===
 
-// 检查API是否已配置（支持贞贞API或原生Gemini）
+// 检查API是否已配置（支持API或原生Gemini）
 const isApiConfigured = (): boolean => {
   const config = getThirdPartyConfig();
-  // 贞贞API 或 Gemini API Key
+  // API 或 Gemini API Key
   const hasThirdParty = !!(config && config.enabled && config.apiKey);
   const hasGemini = !!localStorage.getItem('gemini_api_key');
   return hasThirdParty || hasGemini;
@@ -102,7 +104,7 @@ const base64ToFile = async (imageUrl: string, filename: string = 'image.png'): P
   }
 };
 
-// 生成图片（文生图/图生图）- 自动选择贞贞API或Gemini
+// 生成图片（文生图/图生图）- 自动选择API或Gemini
 const generateCreativeImage = async (
   prompt: string, 
   config?: GenerationConfig,
@@ -122,7 +124,7 @@ const generateCreativeImage = async (
   }
 };
 
-// 编辑图片（图生图）- 自动选择贞贞API或Gemini
+// 编辑图片（图生图）- 自动选择API或Gemini
 const editCreativeImage = async (
   images: string[],
   prompt: string,
@@ -295,7 +297,7 @@ const extractImageMetadata = async (imageUrl: string): Promise<ImageMetadata> =>
 // === 画布组件开始 ===
 
 interface PebblingCanvasProps {
-  onImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string) => void; // 回调同步到桌面（含画布ID用于联动）
+  onImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void; // 回调同步到桌面（含画布ID用于联动；isVideo 用于 ComfyUI 视频 URL 正确保存）
   onCanvasCreated?: (canvasId: string, canvasName: string) => void; // 画布创建回调（用于桌面联动创建文件夹）
   creativeIdeas?: CreativeIdea[]; // 主项目创意库
   isActive?: boolean; // 画布是否处于活动状态（用于快捷键作用域控制）
@@ -344,6 +346,19 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   useEffect(() => {
       connectionsRef.current = connections;
   }, [connections]);
+
+  // 加载 ComfyUI 工作流列表与地址列表（画布激活时拉取，供节点下拉选择）
+  useEffect(() => {
+    if (!isActive) return;
+    const cfg = getComfyUIConfig();
+    setComfyuiAddresses(cfg.addresses || []);
+    getComfyUIWorkflows().then((res) => {
+      if (res.success && res.data) setComfyuiWorkflows(res.data);
+    });
+  }, [isActive]);
+
+  // ComfyUI 地址列表（配置页维护，画布节点只能选择）
+  const [comfyuiAddresses, setComfyuiAddresses] = useState<ComfyUIAddress[]>([]);
   
   // Canvas Transform
   const [canvasOffset, setCanvasOffset] = useState<Vec2>({ x: 0, y: 0 });
@@ -352,6 +367,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   const [dragStart, setDragStart] = useState<Vec2>({ x: 0, y: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false); // 空格键状态，用于拖拽画布
   const [isPanMode, setIsPanMode] = useState(false); // 平移模式开关
+
+  // ComfyUI 工作流列表（供画布节点选择，与 ComfyUI Tab 配置同步）
+  const [comfyuiWorkflows, setComfyuiWorkflows] = useState<ComfyUIWorkflowConfig[]>([]);
 
   // Node Selection & Dragging
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set<string>());
@@ -679,6 +697,13 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   // 保存当前画布（防抖）- 会自动将图片内容本地化到画布专属文件夹
   const saveCurrentCanvas = useCallback(async () => {
     if (!currentCanvasId) return;
+    
+    // 先检查是否有变化，避免无操作时重复执行本地化（含远程图片下载）
+    const currentNodesStr = JSON.stringify(nodesRef.current);
+    const currentConnsStr = JSON.stringify(connectionsRef.current);
+    if (currentNodesStr === lastSaveRef.current.nodes && currentConnsStr === lastSaveRef.current.connections) {
+      return;
+    }
     
     // 获取当前画布名称
     const currentCanvas = canvasList.find(c => c.id === currentCanvasId);
@@ -1166,7 +1191,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           const x = (detail.x - rect.left - canvasOffset.x) / scale - 150;
           const y = (detail.y - rect.top - canvasOffset.y) / scale - 100;
           
-          if (detail.type && ['image', 'text', 'video', 'llm', 'idea', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'drawing-board'].includes(detail.type)) {
+          if (detail.type && ['image', 'text', 'video', 'llm', 'idea', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'drawing-board', 'comfyui', 'comfy-config'].includes(detail.type)) {
               console.log('[Canvas] 创建节点:', detail.type, '位置:', x, y);
               addNode(detail.type, '', { x, y });
           }
@@ -1267,6 +1292,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       if (type === 'llm') { width = 320; height = 300; }
       // RunningHub 节点（输入 ID 的节点）
       if (type === 'runninghub') { width = 280; height = 180; }
+      if (type === 'comfyui') { width = 380; height = 260; }
+      if (type === 'comfy-config') { width = 320; height = 280; }
       // RH-Main 节点（封面主节点）
       if (type === 'rh-main') { width = 280; height = 280; }
       // RH-Param 节点（独立参数 Ticket）
@@ -1340,6 +1367,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           y = spot.y;
       }
 
+      const baseData = data || {};
+      if (type === 'comfyui' && baseData.comfyBaseUrl == null) {
+          const cfg = getComfyUIConfig();
+          (baseData as Record<string, unknown>).comfyBaseUrl = cfg.baseUrl || 'http://127.0.0.1:8188';
+      }
       const newNode: CanvasNode = {
           id: uuid(),
           type,
@@ -1349,7 +1381,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           width,
           height,
           title,
-          data: data || {},
+          data: baseData,
           status: 'idle'
       };
       setNodes(prev => [...prev, newNode]);
@@ -1603,6 +1635,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       images.push(node.content);
                       foundImageInThisPath = true;
                   }
+              }
+          } else if (node.type === 'comfyui' || node.type === 'comfy-config') {
+              // ComfyUI 节点：执行完成后输出在 data.outputImages
+              if (node.status === 'completed' && node.data?.outputImages?.length) {
+                  node.data.outputImages.forEach((url: string) => {
+                      if (isValidImage(url)) images.push(url);
+                  });
+                  foundImageInThisPath = true;
               }
           }
           // relay 节点没有自身输出，继续传递
@@ -3483,6 +3523,157 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   }
               }
           }
+          else if (node.type === 'comfyui') {
+              // ComfyUI 节点：从 Tab 配置的工作流取 JSON，代入暴露参数后提交
+              const baseUrl = (node.data?.comfyBaseUrl || getComfyUIConfig().baseUrl || '').trim();
+              const workflowId = node.data?.workflowId ?? '';
+              const comfyInputs = node.data?.comfyInputs ?? {};
+
+              if (!baseUrl) {
+                  updateNode(nodeId, { status: 'error', data: { ...node.data, error: '请配置 ComfyUI 地址（节点内或 ComfyUI Tab）' } });
+                  return;
+              }
+              if (!workflowId) {
+                  updateNode(nodeId, { status: 'error', data: { ...node.data, error: '请选择工作流（在 ComfyUI Tab 中先配置）' } });
+                  return;
+              }
+
+              const workflowsRes = await getComfyUIWorkflows();
+              if (!workflowsRes.success || !workflowsRes.data) {
+                  updateNode(nodeId, { status: 'error', data: { ...node.data, error: '获取工作流列表失败' } });
+                  return;
+              }
+              const workflow = workflowsRes.data.find((w) => w.id === workflowId);
+              if (!workflow || !workflow.workflowApiJson) {
+                  updateNode(nodeId, { status: 'error', data: { ...node.data, error: '工作流不存在或已删除' } });
+                  return;
+              }
+
+              try {
+                  let prompt: Record<string, Record<string, unknown>>;
+                  try {
+                      prompt = JSON.parse(workflow.workflowApiJson) as Record<string, Record<string, unknown>>;
+                  } catch (_) {
+                      updateNode(nodeId, { status: 'error', data: { ...node.data, error: '工作流 JSON 格式无效' } });
+                      return;
+                  }
+                  // 将 comfyInputs 代入 workflow 中对应节点输入（仅暴露的 slot）；未填的字符串显式传 ''，避免沿用模板无效值导致校验失败
+                  (workflow.inputSlots || []).filter((s) => s.exposed).forEach((slot) => {
+                      const val = comfyInputs[slot.slotKey];
+                      if (slot.nodeId && prompt[slot.nodeId]?.inputs && slot.inputName) {
+                          if (slot.type === 'INT') prompt[slot.nodeId].inputs[slot.inputName] = (val !== undefined && val !== null && String(val).trim() !== '') ? (parseInt(String(val), 10) || 0) : 0;
+                          else if (slot.type === 'FLOAT') prompt[slot.nodeId].inputs[slot.inputName] = (val !== undefined && val !== null && String(val).trim() !== '') ? (parseFloat(String(val)) || 0) : 0;
+                          else if (slot.type === 'BOOLEAN') prompt[slot.nodeId].inputs[slot.inputName] = val === 'true' || val === '1';
+                          else prompt[slot.nodeId].inputs[slot.inputName] = (val !== undefined && val !== null) ? String(val) : '';
+                      }
+                  });
+                  const submitRes = await comfyuiSubmitPrompt(prompt as Record<string, unknown>, baseUrl);
+                  if (!submitRes.success || !submitRes.promptId) {
+                      const errStr = typeof submitRes.error === 'string' ? submitRes.error : (submitRes.error && typeof submitRes.error === 'object' && 'message' in submitRes.error ? String((submitRes.error as { message?: unknown }).message) : String(submitRes.error ?? ''));
+                      const displayError = (errStr || '提交失败') + (
+                          /validation|failed validation|validate/i.test(errStr)
+                              ? '\n\n建议：① 工作流中引用的模型（大模型、LoRA 等）是否已放入 ComfyUI 对应目录；② 在 ComfyUI 界面中直接运行该工作流是否正常；③ 必填参数是否已填写。'
+                              : ''
+                      );
+                      updateNode(nodeId, { status: 'error', data: { ...node.data, error: displayError } });
+                      return;
+                  }
+                  const promptId = submitRes.promptId;
+                  let attempts = 0;
+                  const maxAttempts = 120; // 约 4 分钟
+                  const apiBase = '/api';
+                  while (attempts < maxAttempts && !signal.aborted) {
+                      await new Promise(r => setTimeout(r, 2000));
+                      const histRes = await comfyuiGetHistory(promptId, baseUrl);
+                      if (!histRes.success || !histRes.data?.[promptId]) {
+                          attempts++;
+                          continue;
+                      }
+                      const item = histRes.data[promptId];
+                      const outputs = item?.outputs as Record<string, { images?: Array<{ filename: string; subfolder?: string; type?: string }>; gifs?: Array<{ filename: string; subfolder?: string; type?: string }> }> | undefined;
+                      if (outputs) {
+                          const imageUrls: string[] = [];
+                          const videoUrls: string[] = [];
+                          for (const nodeOutput of Object.values(outputs)) {
+                              const imgs = nodeOutput?.images || [];
+                              for (const img of imgs) {
+                                  const params = new URLSearchParams({ baseUrl, filename: img.filename, subfolder: img.subfolder || '', type: img.type || 'output' });
+                                  imageUrls.push(`${apiBase}/comfyui/view?${params.toString()}`);
+                              }
+                              const gifs = nodeOutput?.gifs || [];
+                              for (const g of gifs) {
+                                  const params = new URLSearchParams({ baseUrl, filename: g.filename, subfolder: g.subfolder || '', type: g.type || 'output' });
+                                  videoUrls.push(`${apiBase}/comfyui/view?${params.toString()}`);
+                              }
+                          }
+                          const hasOutput = imageUrls.length > 0 || videoUrls.length > 0;
+                          if (hasOutput) {
+                              updateNode(nodeId, {
+                                  status: 'completed',
+                                  data: { ...node.data, outputImages: imageUrls, outputVideos: videoUrls, outputPromptId: promptId, error: undefined }
+                              });
+                              // 参考 MEDIA：为每个输出创建 Image 或 Video 节点并连线
+                              // 有视频时不同步预览图到桌面、不创建图片节点（ComfyUI 视频工作流返回的预览图不需要）
+                              const comfyNode = nodesRef.current.find(n => n.id === nodeId)!;
+                              const startX = comfyNode.x + comfyNode.width + 80;
+                              let offsetY = 0;
+                              const newNodes: CanvasNode[] = [];
+                              const newConns: Connection[] = [];
+                              const onlyVideos = videoUrls.length > 0;
+                              if (!onlyVideos) {
+                                  for (const url of imageUrls) {
+                                      const outId = uuid();
+                                      newNodes.push({
+                                          id: outId,
+                                          type: 'image',
+                                          content: url,
+                                          x: startX,
+                                          y: comfyNode.y + offsetY,
+                                          width: 300,
+                                          height: 300,
+                                          data: {},
+                                          status: 'completed'
+                                      });
+                                      newConns.push({ id: uuid(), fromNode: nodeId, toNode: outId });
+                                      offsetY += 320;
+                                      if (onImageGenerated) onImageGenerated(url, 'ComfyUI 输出', currentCanvasId || undefined, canvasName);
+                                  }
+                              }
+                              for (const url of videoUrls) {
+                                  const outId = uuid();
+                                  newNodes.push({
+                                      id: outId,
+                                      type: 'video-output',
+                                      content: url,
+                                      x: startX,
+                                      y: comfyNode.y + offsetY,
+                                      width: 400,
+                                      height: 225,
+                                      data: {},
+                                      status: 'completed'
+                                  });
+                                  newConns.push({ id: uuid(), fromNode: nodeId, toNode: outId });
+                                  offsetY += 245;
+                                  if (onImageGenerated) onImageGenerated(url, 'ComfyUI 视频输出', currentCanvasId || undefined, canvasName, true);
+                              }
+                              if (newNodes.length > 0) {
+                                  setNodes(prev => [...prev, ...newNodes]);
+                                  setConnections(prev => [...prev, ...newConns]);
+                                  nodesRef.current = [...nodesRef.current, ...newNodes];
+                                  connectionsRef.current = [...connectionsRef.current, ...newConns];
+                              }
+                              saveCurrentCanvas();
+                              return;
+                          }
+                      }
+                      attempts++;
+                  }
+                  updateNode(nodeId, { status: 'error', data: { ...node.data, error: '执行超时或未获取到输出' } });
+              } catch (err) {
+                  console.error('[ComfyUI] 执行失败:', err);
+                  updateNode(nodeId, { status: 'error', data: { ...node.data, error: (err as Error).message } });
+              }
+          }
           else if (node.type === 'runninghub') {
               // RunningHub 节点：点击 RUN 后获取应用信息并创建配置节点
               const webappId = node.data?.webappId;
@@ -3982,7 +4173,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     const x = (e.clientX - rect.left - canvasOffset.x) / scale - 150; // Center node roughly
     const y = (e.clientY - rect.top - canvasOffset.y) / scale - 100;
 
-    if (type && ['image', 'text', 'video', 'llm', 'idea', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp'].includes(type)) {
+    if (type && ['image', 'text', 'video', 'llm', 'idea', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'comfyui'].includes(type)) {
         console.log('[Drop] 创建节点:', type, '位置:', x, y);
         addNode(type, '', { x, y });
         return;
@@ -5124,6 +5315,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     isSelected={selectedNodeIds.has(node.id)}
                     isLightCanvas={isLightCanvas}
                     scale={scale}
+                    comfyuiWorkflows={comfyuiWorkflows}
+                    comfyuiAddresses={comfyuiAddresses}
+                    creativeIdeasForImage={creativeIdeas?.map((i) => ({ id: i.id, title: i.title, imageUrl: i.imageUrl })) ?? []}
                     effectiveColor={node.type === 'relay' ? 'stroke-' + resolveEffectiveType(node.id).replace('text', 'emerald').replace('image', 'blue').replace('llm', 'purple') + '-400' : undefined}
                     hasDownstream={connections.some(c => c.fromNode === node.id)}
                     incomingConnections={connections.filter(c => c.toNode === node.id).map(c => ({ fromNode: c.fromNode, toPortKey: c.toPortKey }))}
@@ -5135,7 +5329,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     onDragStart={handleNodeDragStart}
                     onUpdate={updateNode}
                     onDelete={(id) => setNodes(prev => prev.filter(n => n.id !== id))}
-                    onExecute={handleExecuteNode}
+                    onExecute={(id, count) => { Promise.resolve(handleExecuteNode(id, count ?? 1)).catch(err => { console.error('[执行]', err); }); }}
                     onStop={handleStopNode}
                     onDownload={async (id) => {
                         const n = nodes.find(x => x.id === id);

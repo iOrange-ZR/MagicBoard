@@ -1,5 +1,5 @@
 
-export type NodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'video-output' | 'frame-extractor' | 'combine' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale' | 'bp' | 'runninghub' | 'rh-config' | 'rh-param' | 'rh-main' | 'drawing-board';
+export type NodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'video-output' | 'frame-extractor' | 'combine' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale' | 'bp' | 'runninghub' | 'rh-config' | 'rh-param' | 'rh-main' | 'drawing-board' | 'comfyui' | 'comfy-config';
 
 export type NodeStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -141,6 +141,21 @@ export interface NodeData {
   boardHeight?: number;
   receivedImages?: string[]; // 接收到的上游图片URL列表
   outputImageUrl?: string; // 画板输出的PNG图片URL
+
+  // ComfyUI Node Specifics（本地/局域网 ComfyUI，工作流来自 ComfyUI Tab 配置）
+  comfyBaseUrl?: string; // 留空则用全局配置
+  workflowId?: string; // 选中的工作流 ID（对应 Tab 中配置的工作流）
+  comfyInputs?: Record<string, string>; // 仅暴露参数的填写值，key 为 slotKey
+  outputImages?: string[]; // 执行完成后输出图片 URL
+  outputPromptId?: string; // ComfyUI prompt_id
+  // Comfy-Config 节点（预留）
+  comfyTemplateInfo?: {
+    templateId: string;
+    title: string;
+    workflowApiJson: string;
+    inputSlots: Array<{ slotKey: string; label: string; type: string; nodeId?: string; inputName?: string }>;
+  };
+  comfyParentNodeId?: string;
 }
 
 export interface CanvasNode {
@@ -252,7 +267,11 @@ export const getNodeTypeColor = (type: NodeType): { primary: string; light: stri
     
     case 'drawing-board':
       return { primary: ARCTIC_COLORS.boardOrange, light: ARCTIC_COLORS.boardOrangeLight };
-    
+
+    case 'comfyui':
+    case 'comfy-config':
+      return { primary: '#0ea5e9', light: '#38bdf8' }; // sky-500 / sky-400
+
     default:
       return { primary: ARCTIC_COLORS.arcticGray, light: ARCTIC_COLORS.arcticGrayLight };
   };

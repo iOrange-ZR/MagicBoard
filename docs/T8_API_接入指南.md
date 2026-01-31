@@ -1,11 +1,11 @@
 # T8 Star API 接入指南
 
-> 贞贞API (ai.t8star.cn) 接入完整文档
+> API (api.bltcy.ai) 接入完整文档
 
 ## 基础配置
 
 ```typescript
-const API_BASE_URL = 'https://ai.t8star.cn';
+const API_BASE_URL = 'https://api.bltcy.ai';
 const API_KEY = 'your-api-key';
 
 // 通用请求头
@@ -376,7 +376,7 @@ interface VideoTaskResponse {
 
 | 特性 | 官方 Gemini SDK | T8 API |
 |------|----------------|--------|
-| 端点 | Google 官方 | ai.t8star.cn |
+| 端点 | Google 官方 | api.bltcy.ai |
 | 认证 | API Key 初始化 SDK | Bearer Token |
 | Chat | SDK 方法调用 | OpenAI 兼容格式 |
 | 图片生成 | SDK 内置 | 独立端点 |

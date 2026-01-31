@@ -1,6 +1,6 @@
 # 贡献指南 Contributing Guide
 
-感谢你考虑为 **企鹅工坊 Penguin Magic** 做出贡献！🎉
+感谢你考虑为 **天津美术学院（基于 Penguin Magic 魔改）** 做出贡献！🎉
 
 我们欢迎任何形式的贡献，包括但不限于：
 
@@ -236,15 +236,13 @@ npm start                # 启动后端服务
 
 如果你有任何问题或需要帮助，可以通过以下方式联系我们：
 
-- **Q群**：854266067
-- **微信**：Lovexy_0222
 - **GitHub Issues**：[提交 Issue](https://github.com/your-username/PenguinMagic/issues)
 
 ---
 
 ## 致谢
 
-感谢所有为企鹅工坊做出贡献的开发者！🙏
+感谢所有为本项目做出贡献的开发者！🙏
 
 你的每一个贡献，无论大小，都让这个项目变得更好。
 
@@ -253,7 +251,7 @@ npm start                # 启动后端服务
 **Happy Coding! 🐧✨**
 # 贡献指南 Contributing Guide
 
-感谢你考虑为 **企鹅工坊 Penguin Magic** 做出贡献！🎉
+感谢你考虑为 **天津美术学院（基于 Penguin Magic 魔改）** 做出贡献！🎉
 
 我们欢迎任何形式的贡献，包括但不限于：
 
@@ -489,15 +487,13 @@ npm start                # 启动后端服务
 
 如果你有任何问题或需要帮助，可以通过以下方式联系我们：
 
-- **Q群**：854266067
-- **微信**：Lovexy_0222
 - **GitHub Issues**：[提交 Issue](https://github.com/your-username/PenguinMagic/issues)
 
 ---
 
 ## 致谢
 
-感谢所有为企鹅工坊做出贡献的开发者！🙏
+感谢所有为本项目做出贡献的开发者！🙏
 
 你的每一个贡献，无论大小，都让这个项目变得更好。
 

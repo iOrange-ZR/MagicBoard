@@ -11,7 +11,7 @@ import { AddCreativeIdeaModal } from './components/AddCreativeIdeaModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CreativeLibrary } from './components/CreativeLibrary';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { Library as LibraryIcon, Settings as SettingsIcon, Zap as BoltIcon, PlusCircle as PlusCircleIcon, Image as ImageIcon, Lightbulb as LightbulbIcon, AlertTriangle as WarningIcon, Plug as PlugIcon, Gem as DiamondIcon, Sun, Moon, HelpCircle, Home, Database, Maximize2, X, Lock, Edit as EditIcon, Star, Trash2, Clock, Grid3x3, Monitor, Folder, Check, ChevronDown, Minus, Plus } from 'lucide-react';
+import { Library as LibraryIcon, Settings as SettingsIcon, Zap as BoltIcon, PlusCircle as PlusCircleIcon, Image as ImageIcon, Lightbulb as LightbulbIcon, AlertTriangle as WarningIcon, Plug as PlugIcon, Gem as DiamondIcon, Sun, Moon, HelpCircle, Home, Database, Maximize2, X, Lock, Edit as EditIcon, Star, Trash2, Clock, Grid3x3, Monitor, Folder, Check, ChevronDown, Minus, Plus, Workflow } from 'lucide-react';
 import { GenerateButton } from './components/GenerateButton';
 import { HistoryStrip } from './components/HistoryStrip';
 import * as creativeIdeasApi from './services/api/creativeIdeas';
@@ -24,6 +24,7 @@ import { RHTaskQueueProvider } from './contexts/RHTaskQueueContext';
 import { Desktop, createDesktopItemFromHistory, TOP_OFFSET } from './components/Desktop';
 import { HistoryDock } from './components/HistoryDock';
 import PebblingCanvas from './components/PebblingCanvas';
+import { ComfyUIConfigPanel } from './components/ComfyUIConfigPanel';
 
 
 interface LeftPanelProps {
@@ -65,7 +66,7 @@ interface RightPanelProps {
   creativeIdeas: CreativeIdea[];
   handleUseCreativeIdea: (idea: CreativeIdea) => void;
   setAddIdeaModalOpen: (isOpen: boolean) => void;
-  setView: (view: 'editor' | 'local-library' | 'canvas') => void;
+  setView: (view: 'editor' | 'local-library' | 'canvas' | 'comfyui') => void;
   onDeleteIdea: (id: number) => void;
   onEditIdea: (idea: CreativeIdea) => void;
   onToggleFavorite?: (id: number) => void; // 切换收藏状态
@@ -73,8 +74,8 @@ interface RightPanelProps {
 }
 
 interface CanvasProps {
-  view: 'editor' | 'local-library' | 'canvas';
-  setView: (view: 'editor' | 'local-library' | 'canvas') => void;
+  view: 'editor' | 'local-library' | 'canvas' | 'comfyui';
+  setView: (view: 'editor' | 'local-library' | 'canvas' | 'comfyui') => void;
   files: File[];
   onUploadClick: () => void;
   creativeIdeas: CreativeIdea[];
@@ -133,7 +134,7 @@ interface CanvasProps {
   isResultMinimized: boolean;
   setIsResultMinimized: (value: boolean) => void;
   // 画布图片生成回调
-  onCanvasImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string) => void;
+  onCanvasImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void;
   // 画布创建回调
   onCanvasCreated?: (canvasId: string, canvasName: string) => void;
   // 添加图片到画布
@@ -219,7 +220,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
       case 'local-thirdparty':
         return {
           icon: <PlugIcon className="w-3 h-3" />,
-          text: '贞贞API',
+          text: 'API',
           bgClass: 'modern-badge warning',
         };
       case 'local-gemini':
@@ -271,14 +272,14 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             }}
           >
             <img 
-              src={isDark ? "/icons/p-icon-white.svg" : "/icons/p-icon-black.svg"} 
-              alt="P" 
-              className="w-5 h-5" 
+              src="/icons/tafa-logo.jpg" 
+              alt="TAFA" 
+              className="w-5 h-5 object-contain rounded-sm" 
             />
           </div>
           <div>
-            <h1 className="text-sm font-bold" style={{ color: theme.colors.textPrimary }}>Penguin UI</h1>
-            <p className="text-[9px] font-medium tracking-wide" style={{ color: theme.colors.textMuted }}>PenguinPebbling</p>
+            <h1 className="text-sm font-bold" style={{ color: theme.colors.textPrimary }}>TAFA</h1>
+            <p className="text-[9px] font-medium tracking-wide" style={{ color: theme.colors.textMuted }}>天津美术学院 · AI 艺术</p>
           </div>
         </div>
         
@@ -650,7 +651,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                    {smartPromptGenStatus === ApiStatus.Loading ? (
                       <X className="w-4 h-4" />
                    ) : (
-                     <img src="/icons/penguin-icon-white.svg" alt="Penguin" className="w-4 h-4" />
+                     <img src="/icons/tafa-logo.jpg" alt="TAFA" className="w-4 h-4 object-contain rounded-sm" />
                    )}
                </button>
             </div>
@@ -877,7 +878,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
               <button
                 onClick={() => {
                   setIsPromptExpanded(false);
-                  // BP模式下，点击完成后自动触发智能体处理（相当于点击企鹅按钮）
+                  // BP模式下，点击完成后自动触发智能体处理（相当于点击生成按钮）
                   if (activeBPTemplate && canGenerateSmartPrompt) {
                     handleGenerateSmartPrompt();
                   }
@@ -1505,8 +1506,8 @@ const Canvas: React.FC<CanvasProps> = ({
         </>
       )}
       
-      {/* 顶部切换标签 */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[60] liquid-tabs">
+      {/* 顶部切换标签 - z-[100] 确保始终在画布(z-50)之上可点击，避免视频节点等阻塞 tab 切换 */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[100] liquid-tabs pointer-events-auto">
         <button
           onClick={() => setView('editor')}
           className={`liquid-tab flex items-center gap-1 ${
@@ -1539,10 +1540,23 @@ const Canvas: React.FC<CanvasProps> = ({
           <Grid3x3 className="w-3 h-3" />
           画布
         </button>
+        <button
+          onClick={() => setView('comfyui')}
+          className={`liquid-tab flex items-center gap-1 ${
+            view === 'comfyui' ? 'active' : ''
+          }`}
+        >
+          <Workflow className="w-3 h-3" />
+          ComfyUI
+        </button>
 
       </div>
       
-      {view === 'local-library' ? (
+      {view === 'comfyui' ? (
+        <div className="absolute inset-0 z-50 pt-12">
+          <ComfyUIConfigPanel onBack={() => setView('editor')} />
+        </div>
+      ) : view === 'local-library' ? (
         /* 创意库全屏显示 - 支持卡片拖拽排序 */
         <div className="absolute inset-0 z-50 pt-12">
           <CreativeLibrary
@@ -1584,8 +1598,8 @@ const Canvas: React.FC<CanvasProps> = ({
         />
       </div>
       
-      {/* 桌面模式 - 非画布模式时显示 */}
-      {view !== 'canvas' && (
+      {/* 桌面模式 - 仅在「桌面」Tab 时显示 */}
+      {view === 'editor' && (
       <div className="relative z-10 flex-1 overflow-hidden">
           <Desktop
             items={desktopItems}
@@ -1698,6 +1712,8 @@ export const defaultSmartPlusConfig: SmartPlusConfig = [
     { id: 3, label: 'Scene', enabled: true, features: '' },
 ];
 
+const DEBUG = typeof window !== 'undefined' && /[?&]debug=1/.test(window.location.search);
+
 const App: React.FC = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState<number | null>(null);
@@ -1730,13 +1746,13 @@ const App: React.FC = () => {
     return [...localCreativeIdeas].sort((a, b) => (b.order || 0) - (a.order || 0));
   }, [localCreativeIdeas]);
   
-  const [view, setViewInternal] = useState<'editor' | 'local-library' | 'canvas'>('editor'); // 默认桌面模式
+  const [view, setViewInternal] = useState<'editor' | 'local-library' | 'canvas' | 'comfyui'>('editor'); // 默认桌面模式
   
   // 画布保存函数引用（用于切换TAB和关闭时自动保存）
   const canvasSaveRef = useRef<(() => Promise<void>) | null>(null);
   
   // 包装 setView，在离开画布时自动保存
-  const setView = useCallback(async (newView: 'editor' | 'local-library' | 'canvas') => {
+  const setView = useCallback(async (newView: 'editor' | 'local-library' | 'canvas' | 'comfyui') => {
     // 如果从画布切换到其他视图，先保存画布
     if (view === 'canvas' && newView !== 'canvas' && canvasSaveRef.current) {
       try {
@@ -1775,7 +1791,7 @@ const App: React.FC = () => {
 
   const [autoSave, setAutoSave] = useState(false);
   
-  // 贞贞API配置状态
+  // API配置状态
   const [thirdPartyApiConfig, setThirdPartyApiConfig] = useState<ThirdPartyApiConfig>({
     enabled: false,
     baseUrl: '',
@@ -1823,14 +1839,14 @@ const App: React.FC = () => {
       initializeAiClient(savedApiKey);
     }
     
-    // 加载贞贞API配置
+    // 加载API配置
     const savedThirdPartyConfig = localStorage.getItem('third_party_api_config');
     if (savedThirdPartyConfig) {
       try {
         const config = JSON.parse(savedThirdPartyConfig) as ThirdPartyApiConfig;
         // 确保所有必要字段都有默认值（兼容旧版本配置）
         if (!config.baseUrl) {
-          config.baseUrl = 'https://ai.t8star.cn';
+          config.baseUrl = 'https://api.bltcy.ai';
         }
         if (!config.model) {
           config.model = 'nano-banana-2';
@@ -1847,7 +1863,7 @@ const App: React.FC = () => {
       // 默认配置
       const defaultConfig: ThirdPartyApiConfig = {
         enabled: false,
-        baseUrl: 'https://ai.t8star.cn',
+        baseUrl: 'https://api.bltcy.ai',
         apiKey: '',
         model: 'nano-banana-2',
         chatModel: 'gemini-2.5-pro'
@@ -2127,7 +2143,7 @@ const App: React.FC = () => {
     localStorage.setItem('auto_save_enabled', JSON.stringify(enabled));
   };
   
-  // 贞贞API配置变更处理
+  // API配置变更处理
   const handleThirdPartyConfigChange = (config: ThirdPartyApiConfig) => {
     setThirdPartyApiConfig(config);
     setThirdPartyConfig(config);
@@ -2269,7 +2285,7 @@ const App: React.FC = () => {
         console.log('保存到output失败，使用base64:', e);
       }
     } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      // 远程 URL（贞贞 API 等返回），通过后端下载保存到本地防止过期（避免CORS问题）
+      // 远程 URL（API 等返回），通过后端下载保存到本地防止过期（避免CORS问题）
       try {
         const downloadResult = await downloadRemoteToOutput(imageUrl);
         if (downloadResult.success && downloadResult.data) {
@@ -2633,7 +2649,7 @@ const App: React.FC = () => {
   const handleGenerateSmartPrompt = useCallback(async () => {
     const activeTemplate = activeSmartTemplate || activeSmartPlusTemplate || activeBPTemplate;
     
-    // 检查API配置：要么有Gemini Key，要么启用了贞贞API
+    // 检查API配置：要么有Gemini Key，要么启用了API
     const hasValidApi = apiKey || (thirdPartyApiConfig.enabled && thirdPartyApiConfig.apiKey);
 
     // 创建新的 AbortController
@@ -2647,7 +2663,7 @@ const App: React.FC = () => {
       // 无创意库模式 - 纯提示词优化
       if (!activeTemplate) {
         if (!hasValidApi) {
-          alert('提示词优化需要配置 API Key（Gemini 或贞贞API）');
+          alert('提示词优化需要配置 API Key（Gemini 或API）');
           setSmartPromptGenStatus(ApiStatus.Idle);
           return;
         }
@@ -2667,7 +2683,7 @@ const App: React.FC = () => {
       if (activeBPTemplate) {
           // BP Mode Logic (New Orchestration)
           if (!hasValidApi) {
-             alert('BP 模式运行智能体需要配置 API Key（Gemini 或贞贞API）');
+             alert('BP 模式运行智能体需要配置 API Key（Gemini 或API）');
              setSmartPromptGenStatus(ApiStatus.Idle);
              return;
           }
@@ -2678,7 +2694,7 @@ const App: React.FC = () => {
       } else {
           // Standard/Smart Logic (Legacy)
           if (!hasValidApi) {
-             alert('智能提示词生成需要配置 API Key（Gemini 或贞贞API）');
+             alert('智能提示词生成需要配置 API Key（Gemini 或API）');
              setSmartPromptGenStatus(ApiStatus.Idle);
              return;
           }
@@ -2888,8 +2904,10 @@ const App: React.FC = () => {
           video.preload = 'auto';
           
           let fullUrl = videoUrl;
-          if (videoUrl.startsWith('/files/')) {
-            fullUrl = `http://localhost:8765${videoUrl}`;
+          if (!videoUrl.startsWith('http')) {
+            fullUrl = videoUrl.startsWith('/files/')
+              ? `http://localhost:8765${videoUrl}`
+              : `${window.location.origin}${videoUrl.startsWith('/') ? videoUrl : '/' + videoUrl}`;
           }
           
           console.log('[VideoThumbnail] 开始加载视频:', fullUrl.slice(0, 80));
@@ -3004,14 +3022,14 @@ const App: React.FC = () => {
     };
 
     // 画布生成图片/视频同步到桌面（添加到对应画布文件夹）
-    const handleCanvasImageGenerated = useCallback(async (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string) => {
-      // 🔧 判断是图片还是视频
-      const isVideo = imageUrl.includes('.mp4') || imageUrl.includes('.webm') || imageUrl.startsWith('data:video');
+    const handleCanvasImageGenerated = useCallback(async (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideoParam?: boolean) => {
+      // 🔧 判断是图片还是视频（支持回调显式传入 isVideo，用于 ComfyUI 视频 URL）
+      const isVideo = isVideoParam ?? (imageUrl.includes('.mp4') || imageUrl.includes('.webm') || imageUrl.startsWith('data:video'));
       
       // 🔧 保留原始数据用于缩略图提取（base64更可靠）
       const originalImageUrl = imageUrl;
       
-      // 先将base64图片/视频保存到本地文件
+      // 先将 base64 或远程 URL（如 ComfyUI view）保存到本地文件
       let finalUrl = imageUrl;
       if (imageUrl.startsWith('data:')) {
         try {
@@ -3030,6 +3048,28 @@ const App: React.FC = () => {
           }
         } catch (e) {
           console.error('[Canvas] 保存失败:', e);
+        }
+      } else if (isVideo && (imageUrl.includes('comfyui/view') || imageUrl.includes('.mp4') || imageUrl.includes('.webm'))) {
+        // ComfyUI 视频 URL：拉取后保存到 output，再同步到桌面
+        try {
+          const fullUrl = imageUrl.startsWith('http') ? imageUrl : `${window.location.origin}${imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl}`;
+          const res = await fetch(fullUrl);
+          if (!res.ok) throw new Error(`拉取视频失败: ${res.status}`);
+          const blob = await res.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          const filename = `canvas_video_${Date.now()}.mp4`;
+          const result = await saveVideoToOutput(dataUrl, filename);
+          if (result.success && result.data?.url) {
+            finalUrl = result.data.url;
+            console.log('[Canvas] ComfyUI 视频已保存到:', finalUrl);
+          }
+        } catch (e) {
+          console.error('[Canvas] ComfyUI 视频保存失败:', e);
         }
       }
       
@@ -3115,11 +3155,11 @@ const App: React.FC = () => {
   const handleGenerateClick = useCallback(async () => {
     // 检查API配置
     const hasValidApi = 
-      (thirdPartyApiConfig.enabled && thirdPartyApiConfig.apiKey) ||  // 本地贞贞API
+      (thirdPartyApiConfig.enabled && thirdPartyApiConfig.apiKey) ||  // 本地API
       apiKey;  // 本地Gemini
       
     if (!hasValidApi) {
-      setError('请先配置 API Key（贞贞API 或 Gemini）');
+      setError('请先配置 API Key（API 或 Gemini）');
       setStatus(ApiStatus.Error);
       return;
     }
@@ -3169,7 +3209,7 @@ const App: React.FC = () => {
         return;
       }
       if ((activeSmartTemplate || activeSmartPlusTemplate || activeBPTemplate) && !prompt.trim()) {
-        setError(`请先点击企鹅按钮生成/填入提示词`);
+        setError(`请先点击生成按钮生成/填入提示词`);
         setStatus(ApiStatus.Error);
         return;
       }
@@ -3642,7 +3682,7 @@ const App: React.FC = () => {
             setActiveFileIndex(null);
           }
         }
-        // 其次从 base64 数据恢复（兼容旧版本和贞贞 API）
+        // 其次从 base64 数据恢复（兼容旧版本和API）
         else if (historyItem.inputImages && historyItem.inputImages.length > 0) {
           try {
             // 旧版本兼容：inputImages 可能是对象数组 {type, data, name}
@@ -3730,6 +3770,11 @@ const App: React.FC = () => {
   const { theme, themeName } = useTheme();
   const isDark = themeName !== 'light';
 
+  // 调试：挂载后打日志，便于确认是否进入 App
+  useEffect(() => {
+    if (DEBUG) console.log('[App] 已挂载，当前 view 将随状态更新');
+  }, []);
+
   return (
     <div 
       className="h-screen font-sans flex flex-row overflow-hidden selection:bg-blue-500/30 transition-colors duration-300"
@@ -3738,6 +3783,26 @@ const App: React.FC = () => {
         color: theme.colors.textPrimary
       }}
     >
+      {/* 调试横幅：访问 ?debug=1 时显示，便于确认 React 已渲染到 App */}
+      {DEBUG && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 4,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 99999,
+            padding: '4px 12px',
+            fontSize: 11,
+            background: 'rgba(59, 130, 246, 0.9)',
+            color: '#fff',
+            borderRadius: 6,
+            pointerEvents: 'none',
+          }}
+        >
+          调试模式 | App 已渲染
+        </div>
+      )}
       {/* 雪花效果 */}
       <SnowfallEffect />
       
@@ -3995,7 +4060,7 @@ const App: React.FC = () => {
             <div className="relative w-12 h-12">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 animate-pulse" />
               <div className="absolute inset-0 flex items-center justify-center">
-                <img src="/icons/p-icon-white.svg" alt="P" className="w-7 h-7 opacity-80" />
+                <img src="/icons/tafa-logo.jpg" alt="TAFA" className="w-7 h-7 object-contain opacity-90" />
               </div>
               <div className="absolute inset-0 rounded-xl border border-white/10 animate-spin" style={{ animationDuration: '3s' }}>
                 <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-blue-400" />

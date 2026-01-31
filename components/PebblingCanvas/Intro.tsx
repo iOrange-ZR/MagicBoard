@@ -28,14 +28,14 @@ const Intro: React.FC<IntroProps> = ({ onEnter }) => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col md:flex-row items-center justify-center p-8 md:p-24 gap-12 md:gap-32 relative z-10">
          
-         {/* Left: Penguin */}
+         {/* Left: TAFA */}
          <div className="text-center md:text-right space-y-4 group">
             <h1 className="text-6xl md:text-8xl font-thin tracking-tighter text-white group-hover:text-blue-200 transition-colors duration-700 cursor-default">
-              Penguin
+              TAFA
             </h1>
             <div className="flex flex-col md:items-end gap-1 text-zinc-500 font-light tracking-widest uppercase text-xs md:text-sm">
-                <span className="opacity-50">Manchot</span>
-                <span className="opacity-50">企鹅</span>
+                <span className="opacity-50">TAFA</span>
+                <span className="opacity-50">TAFA</span>
             </div>
             <p className="text-zinc-400 max-w-xs md:ml-auto text-sm leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity duration-700 transform translate-y-2 group-hover:translate-y-0">
                Searching the entire beach for the perfect pebble. A symbol of awkward, yet sincere devotion.

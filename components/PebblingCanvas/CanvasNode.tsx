@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { CanvasNode, NodeType, getNodeTypeColor } from '../../types/pebblingTypes';
 import { Icons } from './Icons';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Upload } from 'lucide-react';
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
+import { comfyuiUploadImage } from '../../services/api/comfyui';
 
 // 香蕉SVG图标组件
 const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
@@ -17,6 +18,246 @@ const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14
     <path d="M20.5,10.5c-0.8-0.8-1.9-1.3-3-1.4c0.1-0.5,0.2-1.1,0.2-1.6c0-2.2-1.8-4-4-4c-1.4,0-2.6,0.7-3.3,1.8 C9.6,4.2,8.4,3.5,7,3.5c-2.2,0-4,1.8-4,4c0,0.5,0.1,1.1,0.2,1.6c-1.1,0.1-2.2,0.6-3,1.4c-1.4,1.4-1.4,3.7,0,5.1 c0.7,0.7,1.6,1.1,2.5,1.1c0.9,0,1.8-0.4,2.5-1.1c0.7-0.7,1.1-1.6,1.1-2.5c0-0.9-0.4-1.8-1.1-2.5c-0.2-0.2-0.4-0.4-0.7-0.5 c-0.1-0.4-0.2-0.9-0.2-1.3c0-1.1,0.9-2,2-2s2,0.9,2,2c0,0.5-0.2,0.9-0.5,1.3c-0.5,0.6-0.7,1.3-0.7,2.1c0,0.9,0.4,1.8,1.1,2.5 c0.7,0.7,1.6,1.1,2.5,1.1s1.8-0.4,2.5-1.1c0.7-0.7,1.1-1.6,1.1-2.5c0-0.8-0.3-1.5-0.7-2.1c-0.3-0.4-0.5-0.8-0.5-1.3 c0-1.1,0.9-2,2-2s2,0.9,2,2c0,0.5-0.1,0.9-0.2,1.3c-0.2,0.1-0.5,0.3-0.7,0.5c-0.7,0.7-1.1,1.6-1.1,2.5c0,0.9,0.4,1.8,1.1,2.5 c0.7,0.7,1.6,1.1,2.5,1.1c0.9,0,1.8-0.4,2.5-1.1C21.9,14.2,21.9,11.9,20.5,10.5z"/>
   </svg>
 );
+
+/** ComfyUI 单参数输入：IMAGE 类型显示上传/创意库选择，其余为文本/数字输入 */
+const ComfyUISlotInput: React.FC<{
+  slot: { slotKey: string; label: string; type: string; nodeId?: string; inputName?: string };
+  value: string;
+  onChange: (v: string) => void;
+  comfyBaseUrl: string;
+  creativeIdeas?: Array<{ id: number; title: string; imageUrl: string }>;
+  isLightCanvas: boolean;
+  themeColors: { inputBg: string; inputBorder: string; textPrimary: string; textMuted: string };
+  onMouseDown: (e: React.MouseEvent) => void;
+}> = ({ slot, value, onChange, comfyBaseUrl, creativeIdeas, isLightCanvas, themeColors, onMouseDown }) => {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isImage = slot.type === 'IMAGE';
+
+  const uploadImageToComfy = async (base64: string) => {
+    if (!comfyBaseUrl.trim()) {
+      setUploadError('请先选择 ComfyUI 地址');
+      return;
+    }
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const res = await comfyuiUploadImage(base64, comfyBaseUrl);
+      if (res.success && res.name) {
+        onChange(res.name);
+      } else {
+        setUploadError(res.error || '上传失败');
+      }
+    } catch (e: unknown) {
+      setUploadError(e instanceof Error ? e.message : '上传异常');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    e.target.value = '';
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = reader.result as string;
+      if (data.startsWith('data:')) uploadImageToComfy(data);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSelectFromLibrary = async (imageUrl: string) => {
+    if (!imageUrl) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      let url = imageUrl;
+      if (url.startsWith('/') && !url.startsWith('//')) {
+        url = `${window.location.origin}${url}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const reader = new FileReader();
+      reader.onload = () => uploadImageToComfy(reader.result as string);
+      reader.readAsDataURL(blob);
+    } catch (e: unknown) {
+      setUploadError(e instanceof Error ? e.message : '获取图片失败');
+      setUploading(false);
+    }
+  };
+
+  if (isImage) {
+    // 已选图片时通过 ComfyUI view API 预览（与 IMAGE 节点一致显示缩略图）
+    const previewUrl = value && comfyBaseUrl
+      ? `/api/comfyui/view?${new URLSearchParams({ baseUrl: comfyBaseUrl, filename: value, subfolder: '', type: 'input' }).toString()}`
+      : '';
+    const showPlaceholder = !value || !previewUrl;
+
+    return (
+      <div className="space-y-1.5" onMouseDown={onMouseDown}>
+        <label className="text-[9px] break-words" style={{ color: themeColors.textMuted }}>{slot.label}</label>
+        <div className={`flex flex-col items-center justify-center gap-2 rounded-lg py-2 ${isLightCanvas ? 'bg-gray-100/80' : 'bg-white/5'}`}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          {showPlaceholder ? (
+            <>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: isLightCanvas ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)' }}>
+                <Icons.Image size={16} style={{ color: themeColors.textMuted }} />
+              </div>
+              <span className={`text-[9px] font-medium uppercase tracking-wide ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
+                Upload or Prompt
+              </span>
+            </>
+          ) : (
+            <div className="w-full min-h-[60px] max-h-24 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
+              <img
+                src={previewUrl}
+                alt="预览"
+                className="max-w-full max-h-24 w-auto h-auto object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  const fallback = (e.target as HTMLImageElement).nextElementSibling;
+                  if (fallback) (fallback as HTMLElement).style.display = 'flex';
+                }}
+              />
+              <div className="hidden w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: isLightCanvas ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)' }}>
+                <Icons.Image size={16} style={{ color: themeColors.textMuted }} />
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            <button
+              type="button"
+              disabled={uploading || !comfyBaseUrl}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border border-blue-500/20 transition-colors disabled:opacity-50 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload size={10} />
+              {uploading ? '上传中...' : 'Upload'}
+            </button>
+            {creativeIdeas && creativeIdeas.length > 0 && (
+              <CustomSelect
+                options={['— 从创意库选择 —', ...creativeIdeas.map((i) => i.title)]}
+                value="— 从创意库选择 —"
+                onChange={(title) => {
+                  if (title === '— 从创意库选择 —') return;
+                  const idea = creativeIdeas.find((i) => i.title === title);
+                  if (idea) handleSelectFromLibrary(idea.imageUrl);
+                }}
+                isLightCanvas={isLightCanvas}
+                themeColors={themeColors}
+              />
+            )}
+          </div>
+          {value && (
+            <span className="text-[9px] truncate max-w-full block px-1" style={{ color: themeColors.textMuted }} title={value}>
+              已选: {value}
+            </span>
+          )}
+          {uploadError && (
+            <span className="text-[9px]" style={{ color: '#f87171' }}>{uploadError}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 非 IMAGE：按类型区分 STRING / INT / FLOAT / BOOLEAN，并显示类型提示
+  const placeholderByType = slot.description || (slot.type === 'INT' ? '输入整数' : slot.type === 'FLOAT' ? '输入小数' : slot.type === 'BOOLEAN' ? 'true / false' : '输入文本');
+
+  if (slot.type === 'BOOLEAN') {
+    return (
+      <div className="space-y-1 min-w-0" onMouseDown={onMouseDown}>
+        <label className="text-[9px] break-words" style={{ color: themeColors.textMuted }}>{slot.label} <span className="opacity-70">(BOOLEAN)</span></label>
+        <CustomSelect
+          options={['true', 'false']}
+          value={value === 'true' || value === 'false' ? value : 'true'}
+          onChange={(v) => onChange(v)}
+          isLightCanvas={isLightCanvas}
+          themeColors={themeColors}
+        />
+      </div>
+    );
+  }
+
+  if (slot.type === 'INT') {
+    return (
+      <div className="space-y-1 min-w-0" onMouseDown={onMouseDown}>
+        <label className="text-[9px] break-words" style={{ color: themeColors.textMuted }}>{slot.label} <span className="opacity-70">(INT)</span></label>
+        <input
+          type="number"
+          step={1}
+          inputMode="numeric"
+          className="w-full rounded-lg px-2 py-1.5 text-xs outline-none"
+          style={{ backgroundColor: themeColors.inputBg, border: `1px solid ${themeColors.inputBorder}`, color: themeColors.textPrimary }}
+          placeholder={placeholderByType}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v === '' || v === '-') {
+              onChange(v);
+              return;
+            }
+            const n = parseInt(v, 10);
+            if (!Number.isNaN(n)) onChange(String(n));
+            else onChange('');
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (slot.type === 'FLOAT') {
+    return (
+      <div className="space-y-1 min-w-0" onMouseDown={onMouseDown}>
+        <label className="text-[9px] break-words" style={{ color: themeColors.textMuted }}>{slot.label} <span className="opacity-70">(FLOAT)</span></label>
+        <input
+          type="number"
+          step="any"
+          className="w-full rounded-lg px-2 py-1.5 text-xs outline-none"
+          style={{ backgroundColor: themeColors.inputBg, border: `1px solid ${themeColors.inputBorder}`, color: themeColors.textPrimary }}
+          placeholder={placeholderByType}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
+    );
+  }
+
+  // STRING：与 IMAGE 节点底部提示词输入一致的设计（textarea）
+  return (
+    <div className="space-y-1 min-w-0" onMouseDown={onMouseDown}>
+      <label className="text-[9px] break-words" style={{ color: themeColors.textMuted }}>{slot.label} <span className="opacity-70">(STRING)</span></label>
+      <textarea
+        rows={2}
+        className={`w-full rounded-lg p-2 text-[10px] outline-none resize-none transition-colors ${isLightCanvas ? 'bg-gray-100 border border-gray-200 text-gray-700 placeholder-gray-400 focus:border-blue-400' : 'bg-black/50 border border-white/10 text-zinc-300 placeholder-zinc-600 focus:border-blue-500/50 focus:text-white'}`}
+        style={{ borderColor: isLightCanvas ? undefined : themeColors.inputBorder, color: themeColors.textPrimary }}
+        placeholder={placeholderByType}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+};
+
+/** 将 API/节点可能返回的对象错误（如 { type, message, details, extra_info }）转为可安全渲染的字符串，避免 React #31 */
+function errorToDisplayMessage(e: unknown): string {
+  if (e == null) return '';
+  if (typeof e === 'string') return e;
+  if (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message?: unknown }).message === 'string')
+    return (e as { message: string }).message;
+  return String(e);
+}
 
 // 动态导入 3D 组件以避免影响初始加载
 const MultiAngle3D = lazy(() => import('./MultiAngle3D'));
@@ -104,12 +345,19 @@ interface CanvasNodeProps {
   hasDownstream?: boolean; // 是否有下游连接
   incomingConnections?: Array<{ fromNode: string; toPortKey?: string }>; // 连入当前节点的连接
   onRetryVideoDownload?: (nodeId: string) => void; // 重试视频下载
+  comfyuiWorkflows?: Array<{ id: string; title: string; workflowApiJson: string; inputSlots: Array<{ slotKey: string; label: string; type: string; nodeId?: string; inputName?: string; exposed?: boolean }> }>; // ComfyUI Tab 中配置的工作流列表
+  comfyuiAddresses?: Array<{ id: string; label: string; baseUrl: string }>; // ComfyUI Tab 中配置的地址列表，画布节点只能选择
+  /** 创意库列表，用于 ComfyUI IMAGE 参数「从创意库选择」 */
+  creativeIdeasForImage?: Array<{ id: number; title: string; imageUrl: string }>;
 }
 
-const CanvasNodeItem: React.FC<CanvasNodeProps> = ({ 
+const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
+  creativeIdeasForImage, 
   node, 
   isSelected,
   isLightCanvas = false,
+  comfyuiWorkflows = [],
+  comfyuiAddresses = [],
   onSelect, 
   onUpdate,
   onDelete,
@@ -170,12 +418,19 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   const [showToolbox, setShowToolbox] = useState(false);
   const [mediaMetadata, setMediaMetadata] = useState<{width: number, height: number, size: string, format: string, duration?: string} | null>(null);
   const [customFrameTime, setCustomFrameTime] = useState<string>(''); // 任意帧提取时间（秒）
+  // 视频用 <video> 加载失败时改用 <img> 显示（如 ComfyUI 返回的 GIF）
+  const [videoFallbackToImgNodeIds, setVideoFallbackToImgNodeIds] = useState<string[]>([]);
 
   const [isResizing, setIsResizing] = useState(false);
   const [openSelectKey, setOpenSelectKey] = useState<string | null>(null); // 自定义下拉框状态
   const [rhBatchCount, setRhBatchCount] = useState(1); // rh-config 节点批次数量
   const nodeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 节点视频/输出更新时清除“用 img 回退”标记，以便重新尝试用 video 播放
+  useEffect(() => {
+    setVideoFallbackToImgNodeIds((prev) => (prev.includes(node.id) ? prev.filter((id) => id !== node.id) : prev));
+  }, [node.id, node.content, node.data?.outputVideos]);
 
   useEffect(() => {
     setLocalContent(node.content);
@@ -1090,6 +1345,135 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
     if (node.type === 'llm') return renderLLMNode();
     if (node.type === 'resize') return renderMultiAngleNode();
 
+    // ComfyUI 节点 - 选择 Tab 中配置的工作流，仅显示暴露参数
+    if (node.type === 'comfyui') {
+        const comfyBaseUrl = node.data?.comfyBaseUrl ?? '';
+        const workflowId = node.data?.workflowId ?? '';
+        const comfyInputs = node.data?.comfyInputs ?? {};
+        const outputImages = node.data?.outputImages ?? [];
+        const outputVideos = node.data?.outputVideos ?? [];
+        const errorMsg = errorToDisplayMessage(node.data?.error);
+        const hasOutput = outputImages.length > 0 || outputVideos.length > 0;
+        const selectedWorkflow = comfyuiWorkflows.find((w) => w.id === workflowId);
+        const exposedSlots = selectedWorkflow ? (selectedWorkflow.inputSlots || []).filter((s) => s.exposed) : [];
+
+        const handleBaseUrlChange = (value: string) => {
+            onUpdate(node.id, { data: { ...node.data, comfyBaseUrl: value } });
+        };
+        const handleWorkflowIdChange = (value: string) => {
+            onUpdate(node.id, { data: { ...node.data, workflowId: value, comfyInputs: {} } });
+        };
+        const handleInputChange = (key: string, value: string) => {
+            onUpdate(node.id, { data: { ...node.data, comfyInputs: { ...comfyInputs, [key]: value } } });
+        };
+
+        return (
+            <div className="w-full h-full flex flex-col rounded-xl overflow-hidden relative shadow-lg" style={{ backgroundColor: themeColors.nodeBg, border: `1px solid ${isLightCanvas ? 'rgba(14,165,233,0.3)' : 'rgba(14,165,233,0.3)'}` }}>
+                <div className="h-8 flex items-center justify-between px-3 shrink-0 min-w-0" style={{ borderBottom: `1px solid rgba(14,165,233,0.2)`, backgroundColor: isLightCanvas ? 'rgba(14,165,233,0.08)' : 'rgba(14,165,233,0.1)' }}>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <Icons.Workflow size={14} className="shrink-0" style={{ color: isLightCanvas ? '#0284c7' : '#38bdf8' }} />
+                        <span className="text-[10px] font-bold truncate" style={{ color: isLightCanvas ? '#0369a1' : '#7dd3fc' }} title="ComfyUI">ComfyUI</span>
+                    </div>
+                    <span className="text-[8px] px-1.5 py-0.5 rounded shrink-0" style={{ color: 'rgba(56,189,248,0.8)', backgroundColor: 'rgba(14,165,233,0.2)' }}>本地</span>
+                </div>
+                {hasOutput ? (
+                    <div className="flex-1 relative bg-black flex items-center justify-center p-2">
+                        {outputImages.length > 0 ? (
+                            <img src={outputImages[0]} alt="ComfyUI 输出" className="max-w-full max-h-full object-contain" draggable={false} />
+                        ) : outputVideos.length > 0 ? (
+                            videoFallbackToImgNodeIds.includes(node.id) ? (
+                                <img src={outputVideos[0]} alt="ComfyUI 视频/GIF" className="max-w-full max-h-full object-contain" draggable={false} />
+                            ) : (
+                                <video
+                                    src={outputVideos[0]}
+                                    className="max-w-full max-h-full object-contain"
+                                    controls
+                                    playsInline
+                                    muted
+                                    preload="metadata"
+                                    onError={() => setVideoFallbackToImgNodeIds((prev) => (prev.includes(node.id) ? prev : [...prev, node.id]))}
+                                />
+                            )
+                        ) : null}
+                    </div>
+                ) : (
+                    <div className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto min-w-0" onWheel={(e) => e.stopPropagation()}>
+                        <div className="space-y-1">
+                            <label className="text-[10px] uppercase tracking-wider font-medium" style={{ color: isLightCanvas ? '#0369a1' : 'rgba(56,189,248,0.9)' }}>ComfyUI 地址</label>
+                            <CustomSelect
+                                options={['— 请选择地址 —'].concat(comfyuiAddresses.map((a) => a.label))}
+                                value={comfyuiAddresses.find((a) => a.baseUrl === comfyBaseUrl)?.label ?? '— 请选择地址 —'}
+                                onChange={(label) => {
+                                    if (label === '— 请选择地址 —') {
+                                        handleBaseUrlChange('');
+                                        return;
+                                    }
+                                    const addr = comfyuiAddresses.find((a) => a.label === label);
+                                    handleBaseUrlChange(addr ? addr.baseUrl : '');
+                                }}
+                                isLightCanvas={!!isLightCanvas}
+                                themeColors={themeColors}
+                            />
+                            {comfyuiAddresses.length === 0 && (
+                                <div className="text-[9px]" style={{ color: themeColors.textMuted }}>请在 ComfyUI 配置中添加地址</div>
+                            )}
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] uppercase tracking-wider font-medium" style={{ color: isLightCanvas ? '#0369a1' : 'rgba(56,189,248,0.9)' }}>工作流</label>
+                            <CustomSelect
+                                options={['— 请选择工作流 —'].concat(comfyuiWorkflows.map((w) => w.title))}
+                                value={selectedWorkflow ? selectedWorkflow.title : '— 请选择工作流 —'}
+                                onChange={(title) => {
+                                    if (title === '— 请选择工作流 —') {
+                                        handleWorkflowIdChange('');
+                                        return;
+                                    }
+                                    const w = comfyuiWorkflows.find((x) => x.title === title);
+                                    handleWorkflowIdChange(w ? w.id : '');
+                                }}
+                                isLightCanvas={!!isLightCanvas}
+                                themeColors={themeColors}
+                            />
+                        </div>
+                        {exposedSlots.length > 0 && (
+                            <div className="space-y-2">
+                                <label className="text-[10px] uppercase tracking-wider font-medium" style={{ color: isLightCanvas ? '#0369a1' : 'rgba(56,189,248,0.9)' }}>参数</label>
+                                {exposedSlots.map((slot) => (
+                                    <ComfyUISlotInput
+                                        key={slot.slotKey}
+                                        slot={slot}
+                                        value={comfyInputs[slot.slotKey] ?? ''}
+                                        onChange={(v) => handleInputChange(slot.slotKey, v)}
+                                        comfyBaseUrl={comfyBaseUrl}
+                                        creativeIdeas={creativeIdeasForImage}
+                                        isLightCanvas={!!isLightCanvas}
+                                        themeColors={themeColors}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                        {!workflowId && comfyuiWorkflows.length > 0 && (
+                            <div className="text-[10px]" style={{ color: themeColors.textMuted }}>请在 ComfyUI Tab 中先配置工作流</div>
+                        )}
+                        {errorMsg && (
+                            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-[10px] text-red-300 whitespace-pre-line">{errorMsg}</div>
+                        )}
+                    </div>
+                )}
+                <div className="h-6 px-3 flex items-center justify-between gap-2 text-[10px] min-w-0" style={{ backgroundColor: themeColors.footerBg, borderTop: '1px solid rgba(14,165,233,0.1)', color: themeColors.textMuted }}>
+                    <span className="truncate min-w-0">{hasOutput ? '✅ 已生成' : (selectedWorkflow ? `${selectedWorkflow.title} · ${exposedSlots.length} 参数` : '选工作流')}</span>
+                    <span className="truncate shrink-0 max-w-[180px]" style={{ color: isLightCanvas ? '#0369a1' : 'rgba(56,189,248,0.6)' }} title={comfyBaseUrl || ''}>{comfyBaseUrl ? comfyBaseUrl.replace(/^https?:\/\//, '') : ''}</span>
+                </div>
+                {isRunning && (
+                    <div className="absolute inset-0 backdrop-blur-[2px] flex items-center justify-center z-30" style={{ backgroundColor: isLightCanvas ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                        <div className="w-8 h-8 border-2 border-sky-400/50 border-t-sky-400 rounded-full animate-spin"></div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     // RunningHub节点 - 调用RunningHub AI应用
     if (node.type === 'runninghub') {
         const webappId = node.data?.webappId || '';
@@ -1097,7 +1481,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         const nodeInputs = node.data?.nodeInputs || {};
         const outputUrl = node.data?.outputUrl;
         const outputType = node.data?.outputType;
-        const errorMsg = node.data?.error;
+        const errorMsg = errorToDisplayMessage(node.data?.error);
         
         // 检查是否有输出图片
         const hasOutput = outputUrl && (outputType === 'image' || outputUrl.includes('.png') || outputUrl.includes('.jpg'));
@@ -1593,7 +1977,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         const appInfo = node.data?.appInfo;
         const nodeInputs = node.data?.nodeInputs || {};
         const coverUrl = node.data?.coverUrl;
-        const errorMsg = node.data?.error;
+        const errorMsg = errorToDisplayMessage(node.data?.error);
         const appName = (appInfo as any)?.webappName || appInfo?.title || '配置应用';
         
         const handleNodeInputChange = (key: string, value: string) => {
@@ -3375,7 +3759,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             
                             {node.data?.videoTaskStatus === 'FAILURE' && node.data?.videoFailReason && (
                                 <div className="max-w-[200px] text-center">
-                                    <span className="text-[8px] text-red-400 block">{node.data.videoFailReason}</span>
+                                    <span className="text-[8px] text-red-400 block">{errorToDisplayMessage(node.data.videoFailReason)}</span>
                                 </div>
                             )}
                             
@@ -3389,29 +3773,45 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         );
     }
 
-    // Video Output 节点 - 显示生成的视频 + 工具栏
+    // Video Output 节点 - 显示生成的视频 + 工具栏（含 ComfyUI 文/图生视频工作流返回的 video/gif）
     if (node.type === 'video-output') {
-        const hasVideo = node.content && (node.content.startsWith('data:video') || node.content.includes('.mp4') || node.content.includes('.webm') || node.content.startsWith('/files/'));
+        const isComfyUIView = node.content && (node.content.startsWith('/api/comfyui/view') || node.content.includes('comfyui/view'));
+        const hasVideo = node.content && (
+            node.content.startsWith('data:video') ||
+            node.content.includes('.mp4') ||
+            node.content.includes('.webm') ||
+            node.content.startsWith('/files/') ||
+            !!isComfyUIView
+        );
         const videoNodeColor = getNodeTypeColor(node.type);
         
-        // 处理视频 URL，为 /files/ 路径添加完整 URL
+        // 处理视频 URL：/files/ 需补全为绝对地址；/api/comfyui/view 保持相对地址（同源或代理）
         let videoSrc = node.content || '';
         if (videoSrc.startsWith('/files/')) {
             videoSrc = `http://localhost:8765${videoSrc}`;
         }
         
+        const useImgFallback = videoFallbackToImgNodeIds.includes(node.id);
+
         return (
             <div className="w-full h-full bg-black rounded-xl overflow-hidden relative">
                 {hasVideo ? (
                     <>
-                        <video 
-                            src={videoSrc} 
-                            controls
-                            loop
-                            autoPlay
-                            muted
-                            className="w-full h-full object-contain" 
-                        />
+                        {useImgFallback ? (
+                            <img src={videoSrc} alt="视频/GIF" className="w-full h-full object-contain" />
+                        ) : (
+                            <video 
+                                src={videoSrc} 
+                                controls
+                                loop
+                                autoPlay
+                                muted
+                                preload="metadata"
+                                playsInline
+                                className="w-full h-full object-contain"
+                                onError={() => setVideoFallbackToImgNodeIds((prev) => (prev.includes(node.id) ? prev : [...prev, node.id]))}
+                            />
+                        )}
                         
                         {/* 状态标签 */}
                         <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded text-[9px] font-bold uppercase backdrop-blur-md bg-white/20 text-white">
@@ -3558,9 +3958,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         <span className="text-[11px] text-red-400 font-medium">生成失败</span>
                         {node.data?.videoFailReason && (
                             <span className="text-[9px] text-red-400/70 text-center px-2 max-w-full break-words">
-                                {node.data.videoFailReason.length > 80 
-                                    ? node.data.videoFailReason.slice(0, 80) + '...' 
-                                    : node.data.videoFailReason}
+                                {(() => {
+                                    const msg = errorToDisplayMessage(node.data.videoFailReason);
+                                    return msg.length > 80 ? msg.slice(0, 80) + '...' : msg;
+                                })()}
                             </span>
                         )}
                         {/* 操作按钮 */}
@@ -4276,10 +4677,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
              )}
 
              {/* Execute Button with Batch Count */}
-             {['image', 'text', 'idea', 'edit', 'video', 'llm', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config'].includes(node.type) && (
+             {['image', 'text', 'idea', 'edit', 'video', 'llm', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && (
                  <div className="flex items-center gap-0.5">
                    {/* 批量数量选择器 - 对图片生成类型节点显示 */}
-                   {['image', 'edit', 'bp', 'idea', 'remove-bg', 'upscale', 'video', 'rh-config'].includes(node.type) && !isRunning && (
+                   {['image', 'edit', 'bp', 'idea', 'remove-bg', 'upscale', 'video', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && !isRunning && (
                      <div 
                        className="flex items-center h-8 rounded-l-lg border border-r-0 overflow-hidden"
                        style={{ 
@@ -4317,7 +4718,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                       }}
                       disabled={!isRunning && node.status === 'running'}
                       className={`h-8 px-2.5 border shadow-lg transition-colors flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed
-                          ${['image', 'edit', 'bp', 'idea', 'remove-bg', 'upscale', 'video', 'rh-config'].includes(node.type) && !isRunning ? 'rounded-r-lg' : 'rounded-lg'}
+                          ${['image', 'edit', 'bp', 'idea', 'remove-bg', 'upscale', 'video', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && !isRunning ? 'rounded-r-lg' : 'rounded-lg'}
                           ${isRunning ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30' : ''}
                       `}
                       style={!isRunning ? {

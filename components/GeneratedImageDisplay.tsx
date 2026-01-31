@@ -17,7 +17,7 @@ const defaultLoadingMessages = [
 
 // 有趣的错误提示消息
 const funnyErrorMessages = [
-  { emoji: "🐧", title: "哎呀，企鹅滑倒了！", subtitle: "让我们给它一点时间站起来再试" },
+  { emoji: "🐧", title: "加载中…", subtitle: "请稍候" },
   { emoji: "🧙‍♂️", title: "魔法能量不足！", subtitle: "可能需要更多的想象力燃料" },
   { emoji: "🛠️", title: "AI 在摸鱼！", subtitle: "我们已经通知它回来工作了" },
   { emoji: "🌌", title: "宇宙射线干扰！", subtitle: "或者只是网络有点小情绪" },

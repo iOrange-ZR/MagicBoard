@@ -13,7 +13,7 @@ export interface ThirdPartyApiConfig {
 // 默认配置
 const DEFAULT_CONFIG: ThirdPartyApiConfig = {
   enabled: true,
-  baseUrl: 'https://ai.t8star.cn',
+  baseUrl: 'https://api.bltcy.ai',
   apiKey: '',
   model: 'nano-banana-2',
   chatModel: 'gemini-2.5-pro'
@@ -336,7 +336,7 @@ export const editCreativeImage = async (base64Images: string[], prompt: string, 
     if (base64Images.length > 1) {
       const imageLabels = base64Images.map((_, idx) => `Image${idx + 1}`).join(', ');
       enhancedPrompt = `[Input images in order: ${imageLabels}]\n\n${enhancedPrompt}`;
-      console.log(`[贞贞多图] 检测到 ${base64Images.length} 张图片，已标注顺序:`, imageLabels);
+      console.log(`[多图] 检测到 ${base64Images.length} 张图片，已标注顺序:`, imageLabels);
     }
 
     // 构建请求体

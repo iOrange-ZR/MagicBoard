@@ -73,7 +73,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const { themeName, setTheme, allThemes } = useTheme();
   const activeMode: ApiMode = thirdPartyConfig.enabled ? 'local-thirdparty' : 'local-gemini';
   
-  const [localThirdPartyUrl, setLocalThirdPartyUrl] = useState(thirdPartyConfig.baseUrl || 'https://ai.t8star.cn');
+  const [localThirdPartyUrl, setLocalThirdPartyUrl] = useState(thirdPartyConfig.baseUrl || 'https://api.bltcy.ai');
   const [localThirdPartyKey, setLocalThirdPartyKey] = useState(thirdPartyConfig.apiKey || '');
   const [localGeminiKey, setLocalGeminiKey] = useState(geminiApiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -84,12 +84,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   
   const [soraConfig, setSoraConfig] = useState<SoraConfig>({
     apiKey: '',
-    baseUrl: 'https://ai.t8star.cn'
+    baseUrl: 'https://api.bltcy.ai'
   });
   
   const [veoConfig, setVeoConfig] = useState<VeoConfig>({
     apiKey: '',
-    baseUrl: 'https://ai.t8star.cn'
+    baseUrl: 'https://api.bltcy.ai'
   });
 
   const [runningHubConfig, setRunningHubConfig] = useState({
@@ -109,7 +109,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showRunningHubKey, setShowRunningHubKey] = useState(false);
 
   useEffect(() => {
-    setLocalThirdPartyUrl(thirdPartyConfig.baseUrl || 'https://ai.t8star.cn');
+    setLocalThirdPartyUrl(thirdPartyConfig.baseUrl || 'https://api.bltcy.ai');
     setLocalThirdPartyKey(thirdPartyConfig.apiKey || '');
   }, [thirdPartyConfig.baseUrl, thirdPartyConfig.apiKey]);
 
@@ -120,9 +120,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       const savedSoraConfig = getSoraConfig();
-      setSoraConfig({ ...savedSoraConfig, baseUrl: savedSoraConfig.baseUrl || 'https://ai.t8star.cn' });
+      setSoraConfig({ ...savedSoraConfig, baseUrl: savedSoraConfig.baseUrl || 'https://api.bltcy.ai' });
       const savedVeoConfig = getVeoConfig();
-      setVeoConfig({ ...savedVeoConfig, baseUrl: savedVeoConfig.baseUrl || 'https://ai.t8star.cn' });
+      setVeoConfig({ ...savedVeoConfig, baseUrl: savedVeoConfig.baseUrl || 'https://api.bltcy.ai' });
       
       // 获取 RunningHub 配置
       const fetchRunningHubConfig = async () => {
@@ -177,7 +177,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       apiKey: localThirdPartyKey,
       baseUrl: localThirdPartyUrl,
     });
-    setSaveSuccessMessage('贞贞 API 配置已保存');
+    setSaveSuccessMessage('API 配置已保存');
     setTimeout(() => setSaveSuccessMessage(null), 2000);
   };
 
@@ -370,7 +370,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div>
             <div className="section-title">API CONNECTION</div>
             
-            {/* 贞贞 API */}
+            {/* API */}
             <div
               onClick={() => handleModeChange('local-thirdparty')}
               className="option-card"
@@ -386,7 +386,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm font-semibold" style={{ color: styles.textPrimary }}>贞贞 API</div>
+                  <div className="text-sm font-semibold" style={{ color: styles.textPrimary }}>API</div>
                   <div className="text-xs" style={{ color: styles.textSecondary }}>支持 nano-banana 等模型</div>
                 </div>
                 <div 
@@ -406,7 +406,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="form-input"
                       value={localThirdPartyUrl}
                       onChange={(e) => setLocalThirdPartyUrl(e.target.value)}
-                      placeholder="https://ai.t8star.cn"
+                      placeholder="https://api.bltcy.ai"
                     />
                   </div>
                   <div className="form-group">
@@ -426,7 +426,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <div className="flex gap-2">
                     <a
-                      href="https://ai.t8star.cn/register?aff=64350e39653"
+                      href="https://api.bltcy.ai/register?aff=64350e39653"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn btn-link flex-1"
@@ -523,7 +523,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="form-input"
                   value={soraConfig.baseUrl}
                   onChange={(e) => setSoraConfig({ ...soraConfig, baseUrl: e.target.value })}
-                  placeholder="https://ai.t8star.cn"
+                  placeholder="https://api.bltcy.ai"
                 />
               </div>
               <div className="form-group">
@@ -567,7 +567,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="form-input"
                   value={veoConfig.baseUrl}
                   onChange={(e) => setVeoConfig({ ...veoConfig, baseUrl: e.target.value })}
-                  placeholder="https://ai.t8star.cn"
+                  placeholder="https://api.bltcy.ai"
                 />
               </div>
               <div className="form-group">
@@ -797,8 +797,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </svg>
               </div>
               <div>
-                <h5 className="text-sm font-semibold" style={{ color: styles.textPrimary }}>企鹅魔法</h5>
-                <span className="text-xs" style={{ color: styles.textSecondary }}>Penguin Magic Creative</span>
+                <h5 className="text-sm font-semibold" style={{ color: styles.textPrimary }}>天津美术学院</h5>
+                <span className="text-xs" style={{ color: styles.textSecondary }}>TAFA · 基于 Penguin Magic</span>
               </div>
             </div>
             <div className="flex items-center gap-2">

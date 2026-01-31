@@ -19,8 +19,8 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
   const [keyInput, setKeyInput] = useState('');
   const [isKeySet, setIsKeySet] = useState(false);
   
-  // 贞贞API配置输入
-  const [tpBaseUrl, setTpBaseUrl] = useState(thirdPartyConfig.baseUrl || 'https://ai.t8star.cn');
+  // API配置输入
+  const [tpBaseUrl, setTpBaseUrl] = useState(thirdPartyConfig.baseUrl || 'https://api.bltcy.ai');
   const [tpApiKey, setTpApiKey] = useState('');
   const [tpChatModel, setTpChatModel] = useState(thirdPartyConfig.chatModel || 'gemini-2.5-pro');
   const [isTpKeySet, setIsTpKeySet] = useState(false);
@@ -175,11 +175,11 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 贞贞API开关 */}
+      {/* API开关 */}
       <div className="flex items-center justify-between group">
         <label htmlFor="third-party-toggle" className="text-sm font-medium text-gray-400 group-hover:text-gray-300 transition-colors flex items-center gap-2 cursor-pointer">
           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-          贞贞API
+          API
         </label>
         <div className="relative inline-flex items-center cursor-pointer">
           <input 
@@ -193,11 +193,11 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
         </div>
       </div>
       
-      {/* 贞贞API配置区域 */}
+      {/* API配置区域 */}
       {thirdPartyConfig.enabled && (
         <div className="flex flex-col gap-3 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-blue-400">贞贞API配置</span>
+            <span className="text-xs font-medium text-blue-400">API配置</span>
             {isTpKeySet && (
               <div className="flex items-center gap-1 text-xs text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded-full">
                 <CheckCircleIcon className="w-3.5 h-3.5" />
@@ -213,7 +213,7 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
               type="text"
               value={tpBaseUrl}
               onChange={(e) => setTpBaseUrl(e.target.value)}
-              placeholder="https://ai.t8star.cn"
+              placeholder="https://api.bltcy.ai"
               className="w-full p-2 bg-gray-900/80 border border-gray-600 rounded-md text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
             />
           </div>
@@ -225,7 +225,7 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
               type="password"
               value={tpApiKey}
               onChange={(e) => setTpApiKey(e.target.value)}
-              placeholder={isTpKeySet ? "输入新 Key 更新" : "输入贞贞 API Key"}
+              placeholder={isTpKeySet ? "输入新 Key 更新" : "输入API Key"}
               className="w-full p-2 bg-gray-900/80 border border-gray-600 rounded-md text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
             />
           </div>
@@ -284,12 +284,12 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
           
           {/* 获取API链接 */}
           <a 
-            href="https://ai.t8star.cn/register?aff=64350e39653" 
+            href="https://api.bltcy.ai/register?aff=64350e39653" 
             target="_blank" 
             rel="noopener noreferrer"
             className="text-[11px] text-center text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors"
           >
-            👉 点击这里获取贞贞API Key
+            👉 点击这里获取API Key
           </a>
         </div>
       )}

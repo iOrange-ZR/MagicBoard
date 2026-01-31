@@ -54,7 +54,7 @@ export function getSoraConfig(): SoraConfig {
   }
   return {
     apiKey: '',
-    baseUrl: 'https://ai.t8star.cn'
+    baseUrl: 'https://api.bltcy.ai'
   };
 }
 
