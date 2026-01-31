@@ -3523,8 +3523,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   }
               }
           }
-          else if (node.type === 'comfyui') {
-              // ComfyUI 节点：从 Tab 配置的工作流取 JSON，代入暴露参数后提交
+          else if (node.type === 'comfyui' || node.type === 'comfy-config') {
+              // ComfyUI / Comfy-Config 节点：从 Tab 配置的工作流取 JSON，代入暴露参数后提交（共用同一套执行逻辑）
               const baseUrl = (node.data?.comfyBaseUrl || getComfyUIConfig().baseUrl || '').trim();
               const workflowId = node.data?.workflowId ?? '';
               const comfyInputs = node.data?.comfyInputs ?? {};
@@ -3557,15 +3557,19 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       updateNode(nodeId, { status: 'error', data: { ...node.data, error: '工作流 JSON 格式无效' } });
                       return;
                   }
-                  // 将 comfyInputs 代入 workflow 中对应节点输入（仅暴露的 slot）；未填的字符串显式传 ''，避免沿用模板无效值导致校验失败
+                  // 暴露到画布的参数：用户填了用用户值，未填用默认值；未暴露的保持工作流 JSON 原值
                   (workflow.inputSlots || []).filter((s) => s.exposed).forEach((slot) => {
-                      const val = comfyInputs[slot.slotKey];
-                      if (slot.nodeId && prompt[slot.nodeId]?.inputs && slot.inputName) {
-                          if (slot.type === 'INT') prompt[slot.nodeId].inputs[slot.inputName] = (val !== undefined && val !== null && String(val).trim() !== '') ? (parseInt(String(val), 10) || 0) : 0;
-                          else if (slot.type === 'FLOAT') prompt[slot.nodeId].inputs[slot.inputName] = (val !== undefined && val !== null && String(val).trim() !== '') ? (parseFloat(String(val)) || 0) : 0;
-                          else if (slot.type === 'BOOLEAN') prompt[slot.nodeId].inputs[slot.inputName] = val === 'true' || val === '1';
-                          else prompt[slot.nodeId].inputs[slot.inputName] = (val !== undefined && val !== null) ? String(val) : '';
-                      }
+                      const raw = comfyInputs[slot.slotKey];
+                      const slotDefault = (slot as { defaultValue?: string }).defaultValue;
+                      const hasUserValue = raw !== undefined && raw !== null && String(raw).trim() !== '';
+                      const val = hasUserValue ? raw : (slotDefault ?? '');
+                      const hasEffective = val !== undefined && val !== null && String(val).trim() !== '';
+                      if (!hasEffective) return; // 无用户值且无默认值，不替换，沿用工作流原值
+                      if (!slot.nodeId || !prompt[slot.nodeId]?.inputs || !slot.inputName) return;
+                      if (slot.type === 'INT') prompt[slot.nodeId].inputs[slot.inputName] = parseInt(String(val), 10) || 0;
+                      else if (slot.type === 'FLOAT') prompt[slot.nodeId].inputs[slot.inputName] = parseFloat(String(val)) || 0;
+                      else if (slot.type === 'BOOLEAN') prompt[slot.nodeId].inputs[slot.inputName] = val === 'true' || val === '1';
+                      else prompt[slot.nodeId].inputs[slot.inputName] = String(val);
                   });
                   const submitRes = await comfyuiSubmitPrompt(prompt as Record<string, unknown>, baseUrl);
                   if (!submitRes.success || !submitRes.promptId) {
@@ -4106,6 +4110,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       data: { ...node.data, error: err.message || '执行异常' }
                   });
               }
+          }
+          else {
+              // 未实现执行逻辑的节点类型：恢复状态并提示，避免一直停留在 running
+              console.warn(`[执行] 节点类型 "${node.type}" 暂无执行逻辑`);
+              updateNode(nodeId, { status: 'idle', data: { ...node.data, error: `节点类型 ${node.type} 暂不支持执行` } });
           }
 
       } catch (e) {

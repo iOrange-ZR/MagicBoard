@@ -42,6 +42,8 @@ export interface ComfyUIInputSlot {
   inputName?: string;
   nodeLabel?: string; // 节点友好名称，用于分组展示，如 "正面提示词"
   description?: string;
+  /** 默认值：暴露到画布时在画布中显示，未填时执行时代入 workflow */
+  defaultValue?: string;
   exposed?: boolean; // 是否暴露给画布节点（Tab 中勾选）
 }
 
@@ -50,8 +52,20 @@ export interface ComfyUIWorkflowConfig {
   id: string;
   title: string;
   workflowApiJson: string;
-  inputSlots: ComfyUIInputSlot[]; // 含 exposed 标记
+  inputSlots: ComfyUIInputSlot[]; // 含 exposed、defaultValue、placeholder
   updatedAt: number;
+}
+
+/** 一键导出包：地址 + 工作流（含完整 inputSlots），便于在不同主机间导入 */
+export interface ComfyUIExportBundle {
+  version: number;
+  exportedAt: string; // ISO 时间
+  addresses: ComfyUIAddress[];
+  workflows: Array<{
+    title: string;
+    workflowApiJson: string;
+    inputSlots: ComfyUIInputSlot[];
+  }>;
 }
 
 /** /prompt POST 请求体 */
@@ -405,6 +419,11 @@ export function parseWorkflowJsonToSlots(workflowApiJson: string): ComfyUIInputS
         else if (t === 'string' && (value === '' || value.startsWith('data:') || /\.(png|jpg|jpeg|webp)$/i.test(value))) type = 'IMAGE';
         const paramLabel = getInputDisplayName(inputName);
         const slotKey = `${nodeId}_${inputName}`;
+        const rawDefault = value;
+        const defaultValue =
+          rawDefault !== null && rawDefault !== undefined && (typeof rawDefault === 'string' || typeof rawDefault === 'number' || typeof rawDefault === 'boolean')
+            ? String(rawDefault)
+            : undefined;
         slots.push({
           slotKey,
           label: `[节点${nodeId}] ${displayTitle} · ${paramLabel}`,
@@ -412,6 +431,7 @@ export function parseWorkflowJsonToSlots(workflowApiJson: string): ComfyUIInputS
           nodeId,
           inputName,
           nodeLabel,
+          defaultValue,
           exposed: false,
         });
       }

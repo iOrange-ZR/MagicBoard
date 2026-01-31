@@ -51,6 +51,7 @@
 - `nodeId`：ComfyUI workflow 中对应节点的 id（如 `"3"`）。
 - `inputName`：该节点上的输入名（如 `text`、`seed`）。
 - `description`：可选说明。
+- `defaultValue`：可选默认值；**暴露到画布**时在画布输入框中显示，用户未填时执行时代入 workflow。未暴露的参数沿用工作流 JSON 原值。
 
 **来源方式（二选一或并存）**：
 
@@ -100,7 +101,12 @@ ComfyUI 在本地或局域网，浏览器直连可能遇到 CORS 或跨域；由
 | 参数暴露 | 服务端返回 nodeInfoList | 手动定义或从 workflow/object_info 解析 inputSlots |
 | 执行 | runAIApp(webappId, nodeInfoList) | POST /prompt，轮询 /history，取图经 /view |
 
-## 8. 后续可扩展
+## 8. 一键导入/导出
+
+- **导出**：在 ComfyUI 配置页点击「导出配置」，生成 JSON 文件，包含当前所有地址、所有工作流（含完整 `inputSlots`：暴露标记、默认值、参考提示等），便于在其他主机复用。
+- **导入**：点击「导入配置」选择此前导出的 JSON 文件，将地址与工作流合并到当前配置（地址使用新 id 避免冲突，工作流以新增方式写入），**保留暴露参数信息**（exposed、defaultValue、placeholder 等）。
+
+## 9. 后续可扩展
 
 - **工作流模板库**：在设置或侧栏中管理多份「workflow API JSON + inputSlots」，节点下拉选择模板后自动带出输入表单。
 - **comfy-config 节点**：从 comfyui 节点「加载配置」后生成，展示模板名、封面图与所有 inputSlots 的填写区，RUN 时与主节点共用同一套执行逻辑。

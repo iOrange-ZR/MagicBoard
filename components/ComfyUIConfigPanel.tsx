@@ -13,6 +13,8 @@ import {
   Workflow,
   Server,
   Loader2,
+  Download,
+  Upload,
 } from 'lucide-react';
 import {
   getComfyUIConfig,
@@ -25,6 +27,7 @@ import {
   type ComfyUIWorkflowConfig,
   type ComfyUIInputSlot,
   type ComfyUIAddress,
+  type ComfyUIExportBundle,
 } from '../services/api/comfyui';
 
 interface ComfyUIConfigPanelProps {
@@ -50,6 +53,10 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
   const [formSlots, setFormSlots] = useState<ComfyUIInputSlot[]>([]);
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+  const [clearingWorkflows, setClearingWorkflows] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const loadWorkflows = useCallback(async () => {
     const res = await getComfyUIWorkflows();
@@ -110,6 +117,12 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
   const toggleSlotExposed = (slotKey: string) => {
     setFormSlots((prev) =>
       prev.map((s) => (s.slotKey === slotKey ? { ...s, exposed: !s.exposed } : s))
+    );
+  };
+
+  const updateSlotField = (slotKey: string, field: 'defaultValue', value: string) => {
+    setFormSlots((prev) =>
+      prev.map((s) => (s.slotKey === slotKey ? { ...s, [field]: value || undefined } : s))
     );
   };
 
@@ -176,6 +189,96 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
     if (res.success) loadWorkflows();
   };
 
+  /** 一键清空所有地址，二次确认 */
+  const handleClearAllAddresses = () => {
+    if (addresses.length === 0) return;
+    if (!confirm('确定要清空所有 ComfyUI 地址吗？')) return;
+    if (!confirm('此操作不可恢复，确定继续？')) return;
+    setAddresses([]);
+    setDefaultId(null);
+    saveComfyUIAddresses([], null);
+  };
+
+  /** 一键清空所有工作流，二次确认 */
+  const handleClearAllWorkflows = async () => {
+    if (workflows.length === 0) return;
+    if (!confirm('确定要清空所有工作流吗？')) return;
+    if (!confirm('此操作不可恢复，确定继续？')) return;
+    setClearingWorkflows(true);
+    try {
+      for (const w of workflows) {
+        await deleteComfyUIWorkflow(w.id);
+      }
+      await loadWorkflows();
+    } finally {
+      setClearingWorkflows(false);
+    }
+  };
+
+  /** 一键导出：地址 + 工作流（含完整 inputSlots），便于在其他主机导入 */
+  const handleExport = async () => {
+    const res = await getComfyUIWorkflows();
+    const workflowList = res.success && res.data ? res.data : [];
+    const bundle: ComfyUIExportBundle = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      addresses: [...addresses],
+      workflows: workflowList.map((w) => ({
+        title: w.title,
+        workflowApiJson: w.workflowApiJson,
+        inputSlots: w.inputSlots || [],
+      })),
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `comfyui-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** 一键导入：从 JSON 文件合并地址与工作流，保留暴露参数等信息 */
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as ComfyUIExportBundle;
+      if (!data || typeof data.version !== 'number' || !Array.isArray(data.addresses) || !Array.isArray(data.workflows)) {
+        setImportMessage({ type: 'error', text: '无效的导出包格式，需包含 version、addresses、workflows' });
+        setImporting(false);
+        return;
+      }
+      const ts = Date.now();
+      const mergedAddresses: ComfyUIAddress[] = [...addresses];
+      for (const a of data.addresses) {
+        const newId = `imported-addr-${ts}-${Math.random().toString(36).slice(2, 9)}`;
+        mergedAddresses.push({ id: newId, label: a.label, baseUrl: a.baseUrl });
+      }
+      saveComfyUIAddresses(mergedAddresses, defaultId);
+      setAddresses(mergedAddresses);
+
+      for (const w of data.workflows) {
+        if (!w.title || !w.workflowApiJson) continue;
+        await saveComfyUIWorkflow({
+          title: w.title,
+          workflowApiJson: w.workflowApiJson,
+          inputSlots: Array.isArray(w.inputSlots) ? w.inputSlots : [],
+        });
+      }
+      await loadWorkflows();
+      const addrCount = data.addresses.length;
+      const wfCount = data.workflows.length;
+      setImportMessage({ type: 'ok', text: `已导入 ${addrCount} 个地址、${wfCount} 个工作流（含暴露参数）` });
+    } catch (err) {
+      setImportMessage({ type: 'error', text: err instanceof Error ? err.message : '导入失败：JSON 解析错误' });
+    }
+    setImporting(false);
+  };
+
   return (
     <div
       className="absolute inset-0 z-50 flex flex-col"
@@ -213,7 +316,42 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
                 ComfyUI 地址
               </h2>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <button
+                type="button"
+                onClick={handleExport}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors"
+                style={{
+                  borderColor: isLight ? 'rgba(14,165,233,0.4)' : 'rgba(56,189,248,0.3)',
+                  color: theme.colors.textPrimary,
+                  backgroundColor: isLight ? 'rgba(14,165,233,0.06)' : 'rgba(56,189,248,0.08)',
+                }}
+                title="导出地址与工作流（含暴露参数）到 JSON，便于在其他主机导入"
+              >
+                <Upload className="w-4 h-4" /> 导出配置
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50"
+                style={{
+                  borderColor: isLight ? 'rgba(14,165,233,0.4)' : 'rgba(56,189,248,0.3)',
+                  color: theme.colors.textPrimary,
+                  backgroundColor: isLight ? 'rgba(14,165,233,0.06)' : 'rgba(56,189,248,0.08)',
+                }}
+                title="从 JSON 导入地址与工作流（保留暴露参数信息）"
+              >
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                导入配置
+              </button>
               <button
                 type="button"
                 onClick={handleAddAddress}
@@ -234,6 +372,16 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
                 {savingAddresses ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 保存
               </button>
+              {addresses.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllAddresses}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                  title="清空所有地址（需二次确认）"
+                >
+                  <Trash2 className="w-4 h-4" /> 一键清空地址
+                </button>
+              )}
             </div>
           </div>
           <p className="text-xs mb-3" style={{ color: theme.colors.textMuted }}>
@@ -315,20 +463,44 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
               ))
             )}
           </div>
+          {importMessage && (
+            <div
+              className={`mt-3 rounded-lg px-4 py-2 text-sm flex items-center justify-between ${importMessage.type === 'ok' ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}
+            >
+              <span>{importMessage.text}</span>
+              <button type="button" onClick={() => setImportMessage(null)} className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </section>
 
         {/* 工作流列表 */}
         <section>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <h2 className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
               工作流
             </h2>
-            <button
-              onClick={openAdd}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-sky-500 text-white hover:bg-sky-600"
-            >
-              <Plus className="w-4 h-4" /> 添加工作流
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openAdd}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-sky-500 text-white hover:bg-sky-600"
+              >
+                <Plus className="w-4 h-4" /> 添加工作流
+              </button>
+              {workflows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllWorkflows}
+                  disabled={clearingWorkflows}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                  title="清空所有工作流（需二次确认）"
+                >
+                  {clearingWorkflows ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  一键清空工作流
+                </button>
+              )}
+            </div>
           </div>
 
           {loading ? (
@@ -486,25 +658,39 @@ export const ComfyUIConfigPanel: React.FC<ComfyUIConfigPanelProps> = ({ onBack }
                               <span>{displayTitle}</span>
                               <span className="ml-2 font-normal opacity-70" style={{ color: theme.colors.textMuted }}>节点 {nodeId}</span>
                             </div>
-                            <div className="space-y-1 pl-1">
+                            <div className="space-y-2 pl-1">
                               {nodeSlots.map((slot) => (
-                                <label
-                                  key={slot.slotKey}
-                                  className="flex items-center gap-3 cursor-pointer py-1"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={!!slot.exposed}
-                                    onChange={() => toggleSlotExposed(slot.slotKey)}
-                                    className="rounded border-sky-500 text-sky-500"
-                                  />
-                                  <span className="text-sm truncate flex-1" style={{ color: theme.colors.textPrimary }}>
-                                    {slot.label.includes(' · ') ? slot.label.split(' · ').pop() : slot.label}
-                                  </span>
-                                  <span className="text-xs shrink-0" style={{ color: theme.colors.textMuted }}>
-                                    {slot.type}
-                                  </span>
-                                </label>
+                                <div key={slot.slotKey} className="rounded-lg border p-2 space-y-1.5" style={{ borderColor: theme.colors.border }}>
+                                  <label className="flex items-center gap-3 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!slot.exposed}
+                                      onChange={() => toggleSlotExposed(slot.slotKey)}
+                                      className="rounded border-sky-500 text-sky-500"
+                                    />
+                                    <span className="text-sm truncate flex-1" style={{ color: theme.colors.textPrimary }}>
+                                      {slot.label.includes(' · ') ? slot.label.split(' · ').pop() : slot.label}
+                                    </span>
+                                    <span className="text-xs shrink-0" style={{ color: theme.colors.textMuted }}>
+                                      {slot.type}
+                                    </span>
+                                  </label>
+                                  <div className="pl-6">
+                                    <span className="text-[10px] mr-1" style={{ color: theme.colors.textMuted }}>默认值（暴露到画布时显示）</span>
+                                    <input
+                                      type="text"
+                                      value={slot.defaultValue ?? ''}
+                                      onChange={(e) => updateSlotField(slot.slotKey, 'defaultValue', e.target.value)}
+                                      placeholder="未填时使用"
+                                      className="w-full rounded px-2 py-1 text-xs border outline-none mt-0.5"
+                                      style={{
+                                        backgroundColor: theme.colors.bgPrimary,
+                                        borderColor: theme.colors.border,
+                                        color: theme.colors.textPrimary,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           </div>

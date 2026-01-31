@@ -171,8 +171,8 @@ const ComfyUISlotInput: React.FC<{
     );
   }
 
-  // 非 IMAGE：按类型区分 STRING / INT / FLOAT / BOOLEAN，并显示类型提示
-  const placeholderByType = slot.description || (slot.type === 'INT' ? '输入整数' : slot.type === 'FLOAT' ? '输入小数' : slot.type === 'BOOLEAN' ? 'true / false' : '输入文本');
+  // 非 IMAGE：占位符用 slot.description 或按类型默认
+  const placeholderByType = slot.description ?? (slot.type === 'INT' ? '输入整数' : slot.type === 'FLOAT' ? '输入小数' : slot.type === 'BOOLEAN' ? 'true / false' : '输入文本');
 
   if (slot.type === 'BOOLEAN') {
     return (
@@ -345,7 +345,7 @@ interface CanvasNodeProps {
   hasDownstream?: boolean; // 是否有下游连接
   incomingConnections?: Array<{ fromNode: string; toPortKey?: string }>; // 连入当前节点的连接
   onRetryVideoDownload?: (nodeId: string) => void; // 重试视频下载
-  comfyuiWorkflows?: Array<{ id: string; title: string; workflowApiJson: string; inputSlots: Array<{ slotKey: string; label: string; type: string; nodeId?: string; inputName?: string; exposed?: boolean }> }>; // ComfyUI Tab 中配置的工作流列表
+  comfyuiWorkflows?: Array<{ id: string; title: string; workflowApiJson: string; inputSlots: Array<{ slotKey: string; label: string; type: string; nodeId?: string; inputName?: string; exposed?: boolean; defaultValue?: string; description?: string }> }>; // ComfyUI Tab 中配置的工作流列表
   comfyuiAddresses?: Array<{ id: string; label: string; baseUrl: string }>; // ComfyUI Tab 中配置的地址列表，画布节点只能选择
   /** 创意库列表，用于 ComfyUI IMAGE 参数「从创意库选择」 */
   creativeIdeasForImage?: Array<{ id: number; title: string; imageUrl: string }>;
@@ -1442,7 +1442,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                                     <ComfyUISlotInput
                                         key={slot.slotKey}
                                         slot={slot}
-                                        value={comfyInputs[slot.slotKey] ?? ''}
+                                        value={comfyInputs[slot.slotKey] ?? slot.defaultValue ?? ''}
                                         onChange={(v) => handleInputChange(slot.slotKey, v)}
                                         comfyBaseUrl={comfyBaseUrl}
                                         creativeIdeas={creativeIdeasForImage}
