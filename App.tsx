@@ -3916,7 +3916,6 @@ const App: React.FC = () => {
           isImporting={isImporting}
           isImportingById={isImportingById}
           onCanvasImageGenerated={handleCanvasImageGenerated}
-          onCanvasCreated={handleCanvasCreated}
           pendingCanvasImage={pendingCanvasImage}
           onClearPendingCanvasImage={handleClearPendingCanvasImage}
           onAddToCanvas={handleAddToCanvas}

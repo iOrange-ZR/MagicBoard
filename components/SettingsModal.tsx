@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ThirdPartyApiConfig } from '../types';
 import { useTheme, ThemeName } from '../contexts/ThemeContext';
-import { SoraConfig, getSoraConfig, saveSoraConfig } from '../services/soraService';
-import { VeoConfig, getVeoConfig, saveVeoConfig } from '../services/veoService';
+import { saveSoraConfig } from '../services/soraService';
+import { saveVeoConfig } from '../services/veoService';
+import { getVideoApiConfig } from '../services/unifiedVideoService';
 import { getRunningHubConfig, saveRunningHubConfig } from '../services/api/runninghub';
 import { Eye as EyeIcon, EyeOff as EyeOffIcon, Check, X, RefreshCw, Moon as MoonIcon, Sun as SunIcon, Save as SaveIcon, Cpu as CpuIcon, Folder as FolderIcon, ExternalLink as ExternalLinkIcon } from 'lucide-react';
 
@@ -78,19 +79,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [localGeminiKey, setLocalGeminiKey] = useState(geminiApiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
-  const [showSoraKey, setShowSoraKey] = useState(false);
-  const [showVeoKey, setShowVeoKey] = useState(false);
+  const [showVideoKey, setShowVideoKey] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   
-  const [soraConfig, setSoraConfig] = useState<SoraConfig>({
-    apiKey: '',
-    baseUrl: 'https://api.bltcy.ai'
-  });
-  
-  const [veoConfig, setVeoConfig] = useState<VeoConfig>({
-    apiKey: '',
-    baseUrl: 'https://api.bltcy.ai'
-  });
+  // 视频 API 统一配置（Sora / Veo 共用同一网关与 Key）
+  const [videoApiConfig, setVideoApiConfig] = useState({ apiKey: '', baseUrl: 'https://api.bltcy.ai' });
 
   const [runningHubConfig, setRunningHubConfig] = useState({
     apiKey: '',
@@ -119,10 +112,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      const savedSoraConfig = getSoraConfig();
-      setSoraConfig({ ...savedSoraConfig, baseUrl: savedSoraConfig.baseUrl || 'https://api.bltcy.ai' });
-      const savedVeoConfig = getVeoConfig();
-      setVeoConfig({ ...savedVeoConfig, baseUrl: savedVeoConfig.baseUrl || 'https://api.bltcy.ai' });
+      const config = getVideoApiConfig();
+      setVideoApiConfig({ apiKey: config.apiKey, baseUrl: config.baseUrl || 'https://api.bltcy.ai' });
       
       // 获取 RunningHub 配置
       const fetchRunningHubConfig = async () => {
@@ -187,15 +178,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setSaveSuccessMessage(null), 2000);
   };
 
-  const handleSaveSoraConfig = () => {
-    saveSoraConfig(soraConfig);
-    setSaveSuccessMessage('Sora 视频 API 已保存');
-    setTimeout(() => setSaveSuccessMessage(null), 2000);
-  };
-
-  const handleSaveVeoConfig = () => {
-    saveVeoConfig(veoConfig);
-    setSaveSuccessMessage('Veo3.1 视频 API 已保存');
+  const handleSaveVideoApiConfig = () => {
+    saveSoraConfig(videoApiConfig);
+    saveVeoConfig(videoApiConfig);
+    setSaveSuccessMessage('视频 API 已保存（Sora / Veo 共用）');
     setTimeout(() => setSaveSuccessMessage(null), 2000);
   };
 
@@ -498,11 +484,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* VIDEO API */}
+          {/* VIDEO API - 统一配置，Sora / Veo 共用 */}
           <div>
             <div className="section-title">VIDEO API</div>
-            
-            {/* Sora */}
             <div className="config-card">
               <div className="flex items-center gap-3 mb-4">
                 <div className="option-icon" style={{ background: `linear-gradient(135deg, ${styles.primary}, #1e40af)` }}>
@@ -512,8 +496,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-sm font-semibold" style={{ color: styles.textPrimary }}>Sora 视频生成</h4>
-                  <p className="text-xs" style={{ color: styles.textSecondary }}>OpenAI Sora API 或兼容服务</p>
+                  <h4 className="text-sm font-semibold" style={{ color: styles.textPrimary }}>视频生成（Sora / Veo 共用）</h4>
+                  <p className="text-xs" style={{ color: styles.textSecondary }}>同一网关与 Key 用于 Sora、Veo 3.1 等模型</p>
                 </div>
               </div>
               <div className="form-group">
@@ -521,75 +505,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input
                   type="text"
                   className="form-input"
-                  value={soraConfig.baseUrl}
-                  onChange={(e) => setSoraConfig({ ...soraConfig, baseUrl: e.target.value })}
+                  value={videoApiConfig.baseUrl}
+                  onChange={(e) => setVideoApiConfig({ ...videoApiConfig, baseUrl: e.target.value })}
                   placeholder="https://api.bltcy.ai"
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Sora API Key</label>
+                <label className="form-label">API Key</label>
                 <div className="input-with-btn">
                   <input
-                    type={showSoraKey ? 'text' : 'password'}
+                    type={showVideoKey ? 'text' : 'password'}
                     className="form-input"
-                    value={soraConfig.apiKey}
-                    onChange={(e) => setSoraConfig({ ...soraConfig, apiKey: e.target.value })}
+                    value={videoApiConfig.apiKey}
+                    onChange={(e) => setVideoApiConfig({ ...videoApiConfig, apiKey: e.target.value })}
                     placeholder="sk-..."
                   />
-                  <button className="input-btn" onClick={() => setShowSoraKey(!showSoraKey)}>
-                    {showSoraKey ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                  <button className="input-btn" onClick={() => setShowVideoKey(!showVideoKey)}>
+                    {showVideoKey ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
-              <button className="btn btn-primary w-full" onClick={handleSaveSoraConfig}>
-                保存 Sora 配置
+              <button className="btn btn-primary w-full" onClick={handleSaveVideoApiConfig}>
+                保存视频 API 配置
               </button>
             </div>
-
-            {/* Veo */}
-            <div className="config-card">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="option-icon" style={{ background: 'linear-gradient(135deg, #0ea5e9, #0284c7)' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                    <polygon points="23 7 16 12 23 17 23 7"/>
-                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold" style={{ color: styles.textPrimary }}>Veo 3.1 视频生成</h4>
-                  <p className="text-xs" style={{ color: styles.textSecondary }}>Google Veo3.1 API，支持文生/图生</p>
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">API 地址</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={veoConfig.baseUrl}
-                  onChange={(e) => setVeoConfig({ ...veoConfig, baseUrl: e.target.value })}
-                  placeholder="https://api.bltcy.ai"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Veo API Key</label>
-                <div className="input-with-btn">
-                  <input
-                    type={showVeoKey ? 'text' : 'password'}
-                    className="form-input"
-                    value={veoConfig.apiKey}
-                    onChange={(e) => setVeoConfig({ ...veoConfig, apiKey: e.target.value })}
-                    placeholder="sk-..."
-                  />
-                  <button className="input-btn" onClick={() => setShowVeoKey(!showVeoKey)}>
-                    {showVeoKey ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-              <button className="btn btn-primary w-full" onClick={handleSaveVeoConfig}>
-              保存 Veo3.1 配置
-            </button>
           </div>
-        </div>
 
         {/* RUNNINGHUB API */}
         <div>
