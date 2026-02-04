@@ -25,7 +25,7 @@
 **文件修改**：`.gitignore`
 
 **新增忽略规则**：
-- 可执行文件：`*.exe`, `penguin-backend.exe`, `*.app`, `*.dmg`
+- 可执行文件：`*.exe`, `tafa-aigc-backend.exe`, `*.app`, `*.dmg`
 - 系统临时文件：`Thumbs.db`, `desktop.ini`, `.DS_Store`
 - 备份文件：`*.bak`, `*.backup`, `*.old`, `*.tmp`
 - 压缩文件：`*.zip`, `*.tar.gz`, `*.rar`

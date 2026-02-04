@@ -1,8 +1,8 @@
-# PenguinMagic Electron 打包设计
+# 天津美术学院AIGC Tools Electron 打包设计
 
 ## 一、设计目标
 
-将 PenguinMagic 从 Web 应用改造为 Electron 桌面应用，实现以下目标：
+将天津美术学院AIGC Tools 从 Web 应用改造为 Electron 桌面应用，实现以下目标：
 
 - 提供独立的桌面应用程序，无需浏览器即可运行
 - 内嵌 Node.js 后端服务，实现前后端一体化打包
@@ -66,7 +66,7 @@
 ### 3.2 目录结构调整
 
 ```
-PenguinMagic/
+天津美术学院AIGC Tools/
 ├── electron/                    # Electron 主进程代码
 │   ├── main.js                 # 主进程入口
 │   ├── preload.js              # 预加载脚本
@@ -169,8 +169,8 @@ PenguinMagic/
 **Electron Builder 配置**：
 
 **通用配置**：
-- appId：com.penguin.magic
-- 产品名称：PenguinMagic
+- appId：cn.tafa.aigctools
+- 产品名称：天津美术学院AIGC Tools
 - 版本号：与 package.json 保持一致
 - 包含资源：dist/、backend-nodejs/、data/
 

@@ -145,7 +145,7 @@ http://localhost:5176
 
 ## 🙏 特别鸣谢
 
-本项目基于 [Penguin-Magic](https://github.com/PenguinTeo/Penguin-Magic/tree/main) **v1.6.0** 版本魔改，感谢原版作者 [PenguinTeo](https://github.com/PenguinTeo) 的开源贡献。
+本项目为 **天津美术学院AIGC Tools**（魔改版 v0.2.0），基于 [Penguin-Magic](https://github.com/PenguinTeo/Penguin-Magic/tree/main) v1.6.0 魔改，感谢原版作者 [PenguinTeo](https://github.com/PenguinTeo) 的开源贡献。
 
 ---
 

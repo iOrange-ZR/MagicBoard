@@ -1,12 +1,12 @@
 @echo off
 chcp 437 > nul
-title Penguin Magic World - Install
+title 天津美术学院AIGC Tools - Install
 cd /d "%~dp0"
 color 0B
 
 echo.
 echo  ============================================
-echo       Penguin Magic World - Install
+echo       天津美术学院AIGC Tools - Install
 echo  ============================================
 echo.
 

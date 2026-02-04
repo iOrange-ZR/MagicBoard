@@ -39,7 +39,7 @@
 ### 目录结构
 
 ```
-PenguinMagic/
+天津美术学院AIGC Tools/
 ├── backend-nodejs/              # 新建Node.js后端目录
 │   ├── src/
 │   │   ├── server.js           # 主服务器入口
@@ -216,7 +216,7 @@ PenguinMagic/
 1. 设置控制台标题为"天津美术学院"
 2. 设置临时PATH环境变量指向便携Node.js
 3. 检查后端可执行文件是否存在
-4. 启动backend-nodejs/penguin-backend.exe或node server.js
+4. 启动backend-nodejs/tafa-aigc-backend.exe或node server.js
 5. 等待3秒确保后端启动完成
 6. 调用系统默认浏览器打开http://127.0.0.1:8765
 7. 显示运行状态提示
@@ -229,7 +229,7 @@ PenguinMagic/
 
 ```
 停止流程:
-1. 查找penguin-backend.exe进程
+1. 查找tafa-aigc-backend.exe进程
 2. 如存在则终止该进程
 3. 查找node.exe进程(监听8765端口)
 4. 如存在则终止该进程
@@ -256,7 +256,7 @@ PenguinMagic/
 | 打包工具 | pkg | 支持将Node.js打包为exe |
 | 目标平台 | node18-win-x64 | Windows 64位 |
 | 入口文件 | src/server.js | 主服务器文件 |
-| 输出文件 | penguin-backend.exe | 可执行文件名 |
+| 输出文件 | tafa-aigc-backend.exe | 可执行文件名 |
 | 资源打包 | 不包含data目录 | 保持数据可编辑性 |
 
 ### package.json配置
@@ -275,14 +275,14 @@ PenguinMagic/
 在backend-nodejs目录执行的打包命令:
 
 ```
-命令: npx pkg . --target node18-win-x64 --output penguin-backend.exe
+命令: npx pkg . --target node18-win-x64 --output tafa-aigc-backend.exe
 ```
 
 ### 打包产物
 
 | 文件 | 大小估算 | 说明 |
 |------|---------|------|
-| penguin-backend.exe | 约50-80MB | 包含Node.js运行时和业务逻辑 |
+| tafa-aigc-backend.exe | 约50-80MB | 包含Node.js运行时和业务逻辑 |
 
 ## 九、前端集成方案
 

@@ -3,7 +3,7 @@ chcp 437 > nul
 cd /d "%~dp0"
 
 echo.
-echo  Penguin Magic World - Stop Service
+echo  天津美术学院AIGC Tools - Stop Service
 echo.
 
 :: Stop backend
@@ -14,7 +14,7 @@ for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":8765 " ^| findstr "L
 )
 
 :: Close related cmd windows
-taskkill /f /fi "WINDOWTITLE eq PenguinMagic-Backend" >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq AIGC-Tools-Backend" >nul 2>&1
 
 echo.
 echo  [OK] All services stopped!

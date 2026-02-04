@@ -3514,7 +3514,7 @@ const App: React.FC = () => {
   
   const isSmartReady = !!activeSmartTemplate && prompt.trim().length > 0;
   const isSmartPlusReady = !!activeSmartPlusTemplate;
-  const isBPReady = !!activeBPTemplate; // BP is ready to click penguin anytime to fill variables
+  const isBPReady = !!activeBPTemplate; // BP is ready; click to fill variables anytime
   const isPromptOnlyReady = !activeSmartTemplate && !activeSmartPlusTemplate && !activeBPTemplate && prompt.trim().length > 0; // 无创意库但有提示词
   
   const canGenerateSmartPrompt = (((files.length > 0) && (isSmartReady || isSmartPlusReady)) || isBPReady || isPromptOnlyReady) && smartPromptGenStatus !== ApiStatus.Loading;

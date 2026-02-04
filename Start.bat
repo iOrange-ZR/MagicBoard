@@ -1,12 +1,12 @@
 @echo off
 chcp 437 > nul
 cd /d "%~dp0"
-title Penguin Magic World
+title 天津美术学院AIGC Tools
 color 0B
 
 echo.
 echo  ============================================
-echo       Penguin Magic World - Starting...
+echo       天津美术学院AIGC Tools - Starting...
 echo  ============================================
 echo.
 
@@ -64,7 +64,7 @@ if not exist "creative_images" mkdir "creative_images"
 
 REM Start backend
 echo  [START] Starting Node.js backend...
-start "PenguinMagic-Backend" cmd /c "cd /d "%~dp0backend-nodejs" && node src/server.js || (echo Backend failed && pause)"
+start "AIGC-Tools-Backend" cmd /c "cd /d "%~dp0backend-nodejs" && node src/server.js || (echo Backend failed && pause)"
 
 REM Wait for backend
 echo        Waiting for backend...

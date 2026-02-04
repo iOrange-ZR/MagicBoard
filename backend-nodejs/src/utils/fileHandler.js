@@ -48,7 +48,7 @@ class FileHandler {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0] + '_' + 
                          new Date().toTimeString().split(' ')[0].replace(/:/g, '');
         const randomStr = crypto.randomBytes(4).toString('hex');
-        filename = `penguin_${timestamp}_${randomStr}${ext}`;
+        filename = `tafa_${timestamp}_${randomStr}${ext}`;
       }
 
       // 保存文件

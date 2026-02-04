@@ -922,8 +922,8 @@ function createSplashWindow() {
     </head>
     <body>
       <img class="logo" src="file:///${logoPath}" alt="Logo" onerror="this.outerHTML='🐧'" />
-      <div class="title">PenguinMagic</div>
-      <div class="subtitle">企鹅工坊</div>
+      <div class="title">天津美术学院AIGC Tools</div>
+      <div class="subtitle">天津美术学院</div>
       <div class="loader"><div class="loader-bar"></div></div>
       <div class="status">正在启动服务...</div>
     </body>
@@ -1007,7 +1007,7 @@ function createWindow() {
     height: CONFIG.windowHeight,
     minWidth: CONFIG.minWidth,
     minHeight: CONFIG.minHeight,
-    title: 'PenguinMagic - 企鹅工坊',
+    title: '天津美术学院AIGC Tools',
     icon: icon || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -1191,9 +1191,9 @@ function createMenu() {
             const { dialog } = require('electron');
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: '关于 PenguinMagic',
-              message: 'PenguinMagic - 企鹅工坊',
-              detail: `版本: ${app.getVersion()}\n基于 Electron 和 React 构建的 AI 图像管理应用`,
+              title: '关于 天津美术学院AIGC Tools',
+              message: '天津美术学院AIGC Tools',
+              detail: `版本: ${app.getVersion()}\n天津美术学院 · AIGC 创意管理应用`,
               buttons: ['确定']
             });
           }
@@ -1213,11 +1213,8 @@ function setupAutoUpdater() {
     return;
   }
 
-  // 配置更新服务器
-  autoUpdater.setFeedURL({
-    provider: 'generic',
-    url: 'http://updates.pebbling.cn/'
-  });
+  // 使用 package.json build.publish 配置（GitHub: y501737321/MagicBoard Releases）
+  // 无需在此 setFeedURL，electron-updater 会读取构建时的 publish 配置
 
   // 禁用自动下载，让用户选择
   autoUpdater.autoDownload = false;
@@ -1470,7 +1467,7 @@ ipcMain.handle('open-storage-path', () => {
 
 // 应用启动
 app.whenReady().then(async () => {
-  console.log('🐧 PenguinMagic 启动中...');
+  console.log('天津美术学院AIGC Tools 启动中...');
   console.log('用户数据目录:', app.getPath('userData'));
   console.log('应用路径:', app.getAppPath());
   console.log('开发模式:', CONFIG.isDev);
@@ -1537,7 +1534,7 @@ app.on('before-quit', () => {
 
 // 应用退出
 app.on('quit', () => {
-  console.log('👋 PenguinMagic 已关闭');
+  console.log('👋 天津美术学院AIGC Tools 已关闭');
 });
 
 // 全局异常处理

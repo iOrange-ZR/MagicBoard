@@ -162,7 +162,7 @@ server {
 ### 4.2 部署后端代码
 ```bash
 # 在服务器上
-cd /var/www/penguin-api
+cd /var/www/tafa-aigc-api
 git clone <repo> .
 cd backend-nodejs
 npm install
@@ -172,7 +172,7 @@ MODE=cloud node src/server.js
 ### 4.3 使用 PM2 守护进程
 ```bash
 npm install -g pm2
-MODE=cloud pm2 start src/server.js --name penguin-api
+MODE=cloud pm2 start src/server.js --name tafa-aigc-api
 pm2 save
 pm2 startup
 ```

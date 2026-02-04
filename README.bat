@@ -4,7 +4,7 @@ color 0B
 
 echo.
 echo  ============================================
-echo       Penguin Magic World - README
+echo       天津美术学院AIGC Tools - README
 echo  ============================================
 echo.
 echo.

@@ -1,7 +1,10 @@
 const { rcedit } = require('rcedit');
 const path = require('path');
+const fs = require('fs');
 
-const exePath = path.join(__dirname, '../release/win-unpacked/PenguinMagic.exe');
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'));
+const productName = (pkg.build && pkg.build.productName) || pkg.productName || '天津美术学院AIGC Tools';
+const exePath = path.join(__dirname, '../release/win-unpacked', `${productName}.exe`);
 const iconPath = path.join(__dirname, '../resources/icon.ico');
 
 console.log('正在设置图标...');

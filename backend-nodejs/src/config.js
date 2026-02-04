@@ -8,7 +8,7 @@ const USER_DATA_PATH = process.env.USER_DATA_PATH;
 const PROJECT_DIR = path.resolve(__dirname, '..', '..');
 
 // 数据存储基础目录：
-// - Electron 打包环境：使用用户数据目录 (%APPDATA%/penguin-magic)
+// - Electron 打包环境：使用用户数据目录 (%APPDATA%/cn.tafa.aigctools)
 // - 开发环境：使用项目目录
 const BASE_DIR = IS_ELECTRON && USER_DATA_PATH ? USER_DATA_PATH : PROJECT_DIR;
 

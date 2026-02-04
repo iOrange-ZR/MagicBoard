@@ -2,8 +2,10 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'));
+const productName = (pkg.build && pkg.build.productName) || pkg.productName || '天津美术学院AIGC Tools';
 const rceditPath = path.join(__dirname, '../node_modules/rcedit/bin/rcedit-x64.exe');
-const exePath = path.join(__dirname, '../release/win-unpacked/PenguinMagic.exe');
+const exePath = path.join(__dirname, '../release/win-unpacked', `${productName}.exe`);
 const iconPath = path.join(__dirname, '../resources/icon.ico');
 
 console.log('rcedit路径:', rceditPath);

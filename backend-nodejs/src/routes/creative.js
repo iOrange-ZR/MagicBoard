@@ -58,7 +58,7 @@ function downloadAndSaveImage(imageUrl, saveDir) {
             // 生成文件名
             const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '').replace(/^(\d{8})(\d{6})$/, '$1_$2');
             const randomSuffix = crypto.randomBytes(4).toString('hex');
-            const filename = `penguin_${timestamp}_${randomSuffix}${ext}`;
+            const filename = `tafa_${timestamp}_${randomSuffix}${ext}`;
             const filePath = path.join(saveDir, filename);
             
             // 确保目录存在

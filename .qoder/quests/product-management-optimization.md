@@ -31,7 +31,7 @@
 - 临时文件和缓存
 
 **需要新增的忽略规则建议**
-- 打包生成的可执行文件（*.exe、penguin-backend.exe）
+- 打包生成的可执行文件（*.exe、tafa-aigc-backend.exe）
 - 系统临时文件（Thumbs.db、desktop.ini）
 - 备份文件（*.bak、*.backup）
 - 压缩文件（*.zip 如果用于导出）

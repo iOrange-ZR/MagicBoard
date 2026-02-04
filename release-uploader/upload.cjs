@@ -1,5 +1,5 @@
 /**
- * 🐧 PenguinMagic 发布上传工具
+ * 天津美术学院AIGC Tools 发布上传工具
  * 用于将构建产物上传到服务器
  * 
  * 使用方法:
@@ -18,15 +18,20 @@ const CONFIG_PATH = path.join(UPLOADER_DIR, 'config.json');
 const CONFIG_EXAMPLE_PATH = path.join(UPLOADER_DIR, 'config.example.json');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
 
-// 获取当前版本号
-function getCurrentVersion() {
+// 获取当前版本号与产品名（用于匹配打包文件名）
+function getPackageInfo() {
   try {
     const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8'));
-    return pkg.version;
+    const productName = (pkg.build && pkg.build.productName) ? pkg.build.productName : (pkg.productName || '天津美术学院AIGC Tools');
+    return { version: pkg.version, productName };
   } catch (err) {
     logError(`无法读取 package.json: ${err.message}`);
     process.exit(1);
   }
+}
+
+function getCurrentVersion() {
+  return getPackageInfo().version;
 }
 
 // 颜色输出
@@ -78,7 +83,7 @@ function detectPlatform() {
 }
 
 // 获取需要上传的文件（只匹配当前版本）
-function getFilesToUpload(config, version) {
+function getFilesToUpload(config, version, productName) {
   const files = [];
   const platform = detectPlatform();
 
@@ -90,6 +95,8 @@ function getFilesToUpload(config, version) {
   }
 
   const allFiles = fs.readdirSync(RELEASE_DIR);
+  // electron-builder 对 productName 中的空格等会原样用于文件名
+  const safeName = productName || '天津美术学院AIGC Tools';
 
   // 根据平台选择要上传的文件
   let targetFiles = [];
@@ -103,9 +110,10 @@ function getFilesToUpload(config, version) {
       files.push('latest-mac.yml');
     }
     
-    // 匹配 dmg 和 dmg.blockmap (支持 arm64/x64 架构)
-    const dmgPattern = new RegExp(`^PenguinMagic-${version}(-arm64|-x64)?\\.dmg$`);
-    const blockmapPattern = new RegExp(`^PenguinMagic-${version}(-arm64|-x64)?\\.dmg\\.blockmap$`);
+    // 匹配 dmg 和 dmg.blockmap (支持 arm64/x64 架构)，文件名格式: {productName}-{version}.dmg
+    const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const dmgPattern = new RegExp(`^${escapedName}-${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-arm64|-x64)?\\.dmg$`);
+    const blockmapPattern = new RegExp(`^${escapedName}-${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-arm64|-x64)?\\.dmg\\.blockmap$`);
     
     for (const file of allFiles) {
       if (dmgPattern.test(file) || blockmapPattern.test(file)) {
@@ -118,12 +126,12 @@ function getFilesToUpload(config, version) {
     
     return files;
   } else {
-    // Windows 平台文件
+    // Windows 平台文件：安装包与便携版均使用 productName
     logInfo('检测到 Windows 平台，上传 Windows 版本文件');
     targetFiles = [
       'latest.yml',
-      `PenguinMagic Setup ${version}.exe`,
-      `PenguinMagic Setup ${version}.exe.blockmap`
+      `${safeName} Setup ${version}.exe`,
+      `${safeName} Setup ${version}.exe.blockmap`
     ];
   }
 
@@ -281,18 +289,18 @@ async function uploadViaFTP(files, config) {
 async function main() {
   console.log('');
   log('═══════════════════════════════════════════════════', colors.bright);
-  log('      🐧 PenguinMagic 发布上传工具', colors.bright + colors.cyan);
+  log('      天津美术学院AIGC Tools 发布上传工具', colors.bright + colors.cyan);
   log('═══════════════════════════════════════════════════', colors.bright);
 
   // 加载配置
   const config = loadConfig();
 
-  // 获取当前版本
-  const version = getCurrentVersion();
-  logInfo(`当前版本: ${version}`);
+  // 获取当前版本与产品名
+  const { version, productName } = getPackageInfo();
+  logInfo(`当前版本: ${version}，产品名: ${productName}`);
 
   // 获取文件列表（只匹配当前版本）
-  const files = getFilesToUpload(config, version);
+  const files = getFilesToUpload(config, version, productName);
   if (files.length === 0) {
     logError('没有找到需要上传的文件');
     logInfo(`请确保 release 目录中存在版本 ${version} 的文件`);

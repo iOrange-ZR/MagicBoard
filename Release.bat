@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ══════════════════════════════════════════════════
-echo       🐧 PenguinMagic 一键发布工具
+echo       天津美术学院AIGC Tools 一键发布工具
 echo ══════════════════════════════════════════════════
 echo.
 

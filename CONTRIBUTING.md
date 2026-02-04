@@ -22,7 +22,7 @@
 
 ### 报告 Bug
 
-如果你发现了 Bug，请通过 [GitHub Issues](https://github.com/your-username/PenguinMagic/issues) 报告。提交 Bug 报告时，请包含：
+如果你发现了 Bug，请通过 [GitHub Issues](https://github.com/your-username/tafa-aigc-tools/issues) 报告。提交 Bug 报告时，请包含：
 
 - **问题描述**：清晰简洁地描述问题
 - **复现步骤**：列出重现问题的详细步骤
@@ -36,7 +36,7 @@
 
 ### 提出新功能建议
 
-我们欢迎你提出新功能想法！请通过 [GitHub Issues](https://github.com/your-username/PenguinMagic/issues) 提交功能建议，并包含：
+我们欢迎你提出新功能想法！请通过 [GitHub Issues](https://github.com/your-username/tafa-aigc-tools/issues) 提交功能建议，并包含：
 
 - **功能描述**：清晰描述你希望添加的功能
 - **使用场景**：说明这个功能解决什么问题或满足什么需求
@@ -51,8 +51,8 @@
 
 2. **克隆你的 Fork**：
    ```bash
-   git clone https://github.com/your-username/PenguinMagic.git
-   cd PenguinMagic
+   git clone https://github.com/your-username/tafa-aigc-tools.git
+   cd tafa-aigc-tools
    ```
 
 3. **安装依赖**：
@@ -185,7 +185,7 @@ Closes #123
 ### 项目结构
 
 ```
-PenguinMagic/
+tafa-aigc-tools/
 ├── components/          # React 组件
 ├── services/           # API 和业务逻辑
 ├── hooks/              # 自定义 Hooks
@@ -236,7 +236,7 @@ npm start                # 启动后端服务
 
 如果你有任何问题或需要帮助，可以通过以下方式联系我们：
 
-- **GitHub Issues**：[提交 Issue](https://github.com/your-username/PenguinMagic/issues)
+- **GitHub Issues**：[提交 Issue](https://github.com/your-username/tafa-aigc-tools/issues)
 
 ---
 
@@ -273,7 +273,7 @@ npm start                # 启动后端服务
 
 ### 报告 Bug
 
-如果你发现了 Bug，请通过 [GitHub Issues](https://github.com/your-username/PenguinMagic/issues) 报告。提交 Bug 报告时，请包含：
+如果你发现了 Bug，请通过 [GitHub Issues](https://github.com/your-username/tafa-aigc-tools/issues) 报告。提交 Bug 报告时，请包含：
 
 - **问题描述**：清晰简洁地描述问题
 - **复现步骤**：列出重现问题的详细步骤
@@ -287,7 +287,7 @@ npm start                # 启动后端服务
 
 ### 提出新功能建议
 
-我们欢迎你提出新功能想法！请通过 [GitHub Issues](https://github.com/your-username/PenguinMagic/issues) 提交功能建议，并包含：
+我们欢迎你提出新功能想法！请通过 [GitHub Issues](https://github.com/your-username/tafa-aigc-tools/issues) 提交功能建议，并包含：
 
 - **功能描述**：清晰描述你希望添加的功能
 - **使用场景**：说明这个功能解决什么问题或满足什么需求
@@ -302,8 +302,8 @@ npm start                # 启动后端服务
 
 2. **克隆你的 Fork**：
    ```bash
-   git clone https://github.com/your-username/PenguinMagic.git
-   cd PenguinMagic
+   git clone https://github.com/your-username/tafa-aigc-tools.git
+   cd tafa-aigc-tools
    ```
 
 3. **安装依赖**：
@@ -436,7 +436,7 @@ Closes #123
 ### 项目结构
 
 ```
-PenguinMagic/
+tafa-aigc-tools/
 ├── components/          # React 组件
 ├── services/           # API 和业务逻辑
 ├── hooks/              # 自定义 Hooks
@@ -487,7 +487,7 @@ npm start                # 启动后端服务
 
 如果你有任何问题或需要帮助，可以通过以下方式联系我们：
 
-- **GitHub Issues**：[提交 Issue](https://github.com/your-username/PenguinMagic/issues)
+- **GitHub Issues**：[提交 Issue](https://github.com/your-username/tafa-aigc-tools/issues)
 
 ---
 

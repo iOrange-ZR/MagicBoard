@@ -1,9 +1,9 @@
 {
-  "name": "penguin-magic",
+  "name": "tafa-aigc-tools",
   "private": true,
-  "version": "1.6.0",
-  "description": "天津美术学院 · 基于 Penguin Magic 的 AI 图像创意管理应用",
-  "author": "PenguinCreative",
+  "version": "0.2.0",
+  "description": "天津美术学院 · AIGC Tools 创意管理应用",
+  "author": "天津美术学院",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -41,6 +41,7 @@
     "electron": "^39.2.7",
     "electron-builder": "^26.0.12",
     "icojs": "^0.20.1",
+    "jpeg-js": "^0.4.4",
     "png-to-ico": "^3.0.1",
     "pngjs": "^7.0.0",
     "rcedit": "^5.0.2",
@@ -50,12 +51,13 @@
     "wait-on": "^9.0.3"
   },
   "build": {
-    "appId": "com.penguin.magic",
-    "productName": "PenguinMagic",
+    "appId": "cn.tafa.aigctools",
+    "productName": "天津美术学院AIGC Tools",
     "afterPack": "./scripts/afterPack.cjs",
     "publish": {
-      "provider": "generic",
-      "url": "http://updates.pebbling.cn/"
+      "provider": "github",
+      "owner": "y501737321",
+      "repo": "MagicBoard"
     },
     "directories": {
       "output": "release"
@@ -123,7 +125,7 @@
         "AppImage",
         "deb"
       ],
-      "icon": "resources/icon.ico",
+      "icon": "public/icons/tafa-logo.jpg",
       "category": "Graphics"
     }
   }

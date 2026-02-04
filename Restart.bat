@@ -1,12 +1,12 @@
 @echo off
 chcp 437 > nul
 cd /d "%~dp0"
-title Penguin Magic World - Restart
+title 天津美术学院AIGC Tools - Restart
 color 0B
 
 echo.
 echo  ============================================
-echo       Penguin Magic World - Restart
+echo       天津美术学院AIGC Tools - Restart
 echo  ============================================
 echo.
 
@@ -20,7 +20,7 @@ for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":8765 " ^| findstr "L
     taskkill /f /pid %%a >nul 2>&1
     echo        [OK] Stopped PID: %%a
 )
-taskkill /f /fi "WINDOWTITLE eq PenguinMagic-Backend" >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq AIGC-Tools-Backend" >nul 2>&1
 
 echo        [OK] All services stopped
 echo.
@@ -100,7 +100,7 @@ echo.
 
 REM Start backend
 echo        Starting Node.js backend...
-start "PenguinMagic-Backend" cmd /c "cd /d "%~dp0backend-nodejs" && node src/server.js || (echo Backend failed && pause)"
+start "AIGC-Tools-Backend" cmd /c "cd /d "%~dp0backend-nodejs" && node src/server.js || (echo Backend failed && pause)"
 
 REM Wait for backend
 echo        Waiting for backend...
