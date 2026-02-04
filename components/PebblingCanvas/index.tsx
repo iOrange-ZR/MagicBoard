@@ -18,6 +18,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import * as canvasApi from '../../services/api/canvas';
 import { downloadRemoteToOutput, saveVideoToOutput } from '../../services/api/files';
 import { Icons } from './Icons';
+import { getVideoModelFamily } from '../../constants/videoModels';
 
 // === 画布用API适配器，桥接主项目的geminiService ===
 
@@ -2133,7 +2134,15 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
 
   // 视频节点批量执行：先创建 N 个 video-output 节点，全部完成后合并为一个预览节点
   const handleVideoBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
-      const inputs = resolveInputs(sourceNodeId);
+      let inputs = resolveInputs(sourceNodeId);
+      // 图片可能连在 video-output 上：合并 source 上游 + 已存在的 output 节点上游
+      const outConns = connectionsRef.current.filter(
+        c => c.fromNode === sourceNodeId && nodesRef.current.find(n => n.id === c.toNode)?.type === 'video-output'
+      );
+      for (const c of outConns) {
+        const outInputs = resolveInputs(c.toNode, new Set());
+        if (outInputs.images.length > 0) inputs = { images: [...inputs.images, ...outInputs.images], texts: [...inputs.texts, ...outInputs.texts] };
+      }
       const combinedPrompt = inputs.texts.join('\n') || sourceNode.data?.prompt || '';
       const inputImages = inputs.images;
       if (!combinedPrompt) {
@@ -2174,64 +2183,100 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       updateNode(sourceNodeId, { status: 'completed' });
       saveCurrentCanvas();
 
-      const videoService = sourceNode.data?.videoService || 'sora';
+      const videoModel = sourceNode.data?.videoModel || (sourceNode.data?.videoService === 'veo' ? (sourceNode.data?.veoModel || 'veo3.1-fast') : 'sora-2');
+      const family = getVideoModelFamily(videoModel) || 'unified';
       const runOne = async (outputNodeId: string, index: number) => {
           const abortController = new AbortController();
           abortControllersRef.current.set(outputNodeId, abortController);
           const signal = abortController.signal;
           try {
+              // 与单节点执行、Veo 多图输入一致：统一处理 data:/files/http(s) 多种来源
               let processedImages: string[] = [];
               if (inputImages.length > 0) {
-                  for (const imgSrc of inputImages) {
-                      if (imgSrc.startsWith('data:')) processedImages.push(imgSrc);
-                      else if (imgSrc.startsWith('/files/')) {
-                          const fullUrl = `${window.location.origin}${imgSrc}`;
+                  for (const img of inputImages) {
+                      if (img.startsWith('/files/')) {
+                          const fullUrl = `${window.location.origin}${img}`;
                           const resp = await fetch(fullUrl);
+                          if (!resp.ok) throw new Error(`获取图片失败: ${resp.status}`);
                           const blob = await resp.blob();
-                          const base64 = await new Promise<string>(resolve => {
+                          const base64 = await new Promise<string>((resolve, reject) => {
                               const reader = new FileReader();
                               reader.onloadend = () => resolve(reader.result as string);
+                              reader.onerror = reject;
                               reader.readAsDataURL(blob);
                           });
                           processedImages.push(base64);
+                      } else if (img.startsWith('data:image')) {
+                          const match = img.match(/^data:image\/(\w+);base64,/);
+                          if (match && ['png', 'jpg', 'jpeg', 'webp'].includes(match[1].toLowerCase())) {
+                              processedImages.push(img);
+                          } else if (!match) {
+                              processedImages.push(img);
+                          }
+                      } else if (img.startsWith('http://') || img.startsWith('https://')) {
+                          if (img.includes('localhost') || img.includes('127.0.0.1')) {
+                              const response = await fetch(img);
+                              if (!response.ok) throw new Error(`获取图片失败: ${response.status}`);
+                              const blob = await response.blob();
+                              const base64 = await new Promise<string>((resolve, reject) => {
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => resolve(reader.result as string);
+                                  reader.onerror = reject;
+                                  reader.readAsDataURL(blob);
+                              });
+                              processedImages.push(base64);
+                          } else {
+                              processedImages.push(img);
+                          }
                       }
                   }
               }
               let videoUrl: string | null = null;
-              if (videoService === 'veo') {
-                  const { createVeoTask, waitForVeoCompletion } = await import('../../services/veoService');
-                  const veoMode = sourceNode.data?.veoMode || 'text2video';
-                  const veoModel = sourceNode.data?.veoModel || 'veo3.1-fast';
-                  const veoAspectRatio = sourceNode.data?.veoAspectRatio || '16:9';
-                  const veoEnhancePrompt = sourceNode.data?.veoEnhancePrompt ?? false;
-                  const veoEnableUpsample = sourceNode.data?.veoEnableUpsample ?? false;
-                  const taskId = await createVeoTask({
+              if (family === 'unified') {
+                  const { createUnifiedVideoTask, waitForUnifiedVideoCompletion } = await import('../../services/unifiedVideoService');
+                  const videoSize = sourceNode.data?.videoSize || '1280x720';
+                  const aspectRatio = (sourceNode.data?.veoAspectRatio || (videoSize === '720x1280' ? '9:16' : '16:9')) as '16:9' | '9:16';
+                  const taskId = await createUnifiedVideoTask({
+                      model: videoModel,
                       prompt: combinedPrompt,
-                      model: veoModel as any,
                       images: processedImages.length > 0 ? processedImages : undefined,
-                      aspectRatio: veoAspectRatio as any,
-                      enhancePrompt: veoEnhancePrompt,
-                      enableUpsample: veoEnableUpsample
+                      aspectRatio,
+                      duration: (sourceNode.data?.videoSeconds || '10') as '10' | '15' | '25',
+                      hd: videoModel === 'sora-2-pro',
+                      enhancePrompt: sourceNode.data?.veoEnhancePrompt ?? false,
+                      enableUpsample: sourceNode.data?.veoEnableUpsample ?? false,
                   });
-                  videoUrl = await waitForVeoCompletion(taskId, (progress, status) => {
+                  videoUrl = await waitForUnifiedVideoCompletion(taskId, (progress, status) => {
+                      updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                  });
+              } else if (family === 'kling') {
+                  const { createKlingVideoTask, waitForKlingCompletion } = await import('../../services/klingVideoService');
+                  const klingMode = sourceNode.data?.klingMode || 'text2video';
+                  const taskId = await createKlingVideoTask({
+                      model: videoModel as 'kling-video-v2.6' | 'kling-video-o1',
+                      mode: klingMode,
+                      prompt: combinedPrompt,
+                      images: processedImages.length > 0 ? processedImages : undefined,
+                      aspectRatio: (sourceNode.data?.klingAspectRatio || '16:9') as '16:9' | '9:16',
+                  });
+                  videoUrl = await waitForKlingCompletion(taskId, klingMode, (progress, status) => {
                       updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                   });
               } else {
-                  const { createVideoTask, waitForVideoCompletion } = await import('../../services/soraService');
-                  const videoModel = sourceNode.data?.videoModel || 'sora-2';
-                  const videoSize = sourceNode.data?.videoSize || '1280x720';
-                  const aspectRatio = videoSize === '720x1280' ? '9:16' : '16:9';
-                  const duration = sourceNode.data?.videoSeconds || '10';
-                  const hd = videoModel === 'sora-2-pro';
-                  const taskId = await createVideoTask({
+                  if (videoModel === 'minimax-hailuo-2.3-fast' && processedImages.length === 0) {
+                      updateNode(outputNodeId, { status: 'error', data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoFailReason: '海螺 2.3 Fast 仅支持图生视频，请连接图片节点作为输入' } });
+                      return;
+                  }
+                  // 与 Veo 一致：图片来自 resolveInputs(sourceNodeId) + 所连 video-output 上游，已并入 inputImages → processedImages
+                  const { createMinimaxVideoTask, waitForMinimaxCompletion } = await import('../../services/minimaxVideoService');
+                  const taskId = await createMinimaxVideoTask({
+                      model: videoModel as 'minimax-hailuo-2.3' | 'minimax-hailuo-2.3-fast',
                       prompt: combinedPrompt,
-                      model: videoModel as any,
                       images: processedImages.length > 0 ? processedImages : undefined,
-                      aspectRatio: aspectRatio as any,
-                      hd,
-                      duration: duration as any
+                      resolution: (sourceNode.data?.minimaxResolution || '1080P') as '768P' | '1080P',
+                      duration: sourceNode.data?.minimaxDuration ?? 6,
                   });
-                  videoUrl = await waitForVideoCompletion(taskId, (progress, status) => {
+                  videoUrl = await waitForMinimaxCompletion(taskId, (progress, status) => {
                       updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                   });
               }
@@ -2248,12 +2293,19 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       await Promise.all(resultNodeIds.map((id, i) => runOne(id, i)));
 
       const contents = resultNodeIds.map(id => nodesRef.current.find(n => n.id === id)?.content).filter((c): c is string => !!c && (isValidImage(c) || isValidVideo(c)));
-      setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
-      setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
-      nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
-      connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
 
-      if (contents.length <= 1) {
+      if (contents.length <= 1 && resultNodeIds.length === 1) {
+          const existingId = resultNodeIds[0];
+          updateNode(existingId, {
+              x: baseX,
+              y: sourceNode.y,
+              data: { ...nodesRef.current.find(n => n.id === existingId)?.data, videoTaskId: undefined, videoTaskStatus: undefined, videoProgress: undefined, videoFailReason: undefined }
+          });
+      } else if (contents.length <= 1 && resultNodeIds.length > 1) {
+          setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+          setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+          nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+          connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
           const singleNodeId = uuid();
           const singleNode: CanvasNode = {
               id: singleNodeId,
@@ -2273,7 +2325,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           nodesRef.current = [...nodesRef.current, singleNode];
           connectionsRef.current = [...connectionsRef.current, singleConn];
           if (contents[0] && onImageGenerated) onImageGenerated(contents[0], '视频输出', currentCanvasId || undefined, canvasName, true);
-      } else {
+      } else if (contents.length > 1) {
+          setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+          setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+          nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+          connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
           const previewNodeId = uuid();
           const previewNode: CanvasNode = {
               id: previewNodeId,
@@ -2735,16 +2791,23 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                }
           }
           else if (node.type === 'video') {
-               // Video节点：支持 Sora 和 Veo3.1 生成视频（异步任务）
                const nodePrompt = node.data?.prompt || '';
                const inputTexts = inputs.texts.join('\n');
-               // 🔧 上游输入优先替代节点自身prompt
                const combinedPrompt = inputTexts || nodePrompt;
-               const inputImages = inputs.images;
-               const videoService = node.data?.videoService || 'sora';
-               
+               // 视频节点可能只连到 video-output，图片可能连在 output 上：合并本节点 + 所连 output 的上游
+               let inputImages = inputs.images;
+               const outConns = connectionsRef.current.filter(
+                 c => c.fromNode === nodeId && nodesRef.current.find(n => n.id === c.toNode)?.type === 'video-output'
+               );
+               for (const c of outConns) {
+                 const outInputs = resolveInputs(c.toNode, new Set());
+                 if (outInputs.images.length > 0) inputImages = [...inputImages, ...outInputs.images];
+               }
+               const videoModel = node.data?.videoModel || (node.data?.videoService === 'veo' ? (node.data?.veoModel || 'veo3.1-fast') : 'sora-2');
+               const family = getVideoModelFamily(videoModel) || 'unified';
+
                console.log('[Video节点] ========== 开始处理 ==========');
-               console.log('[Video节点] 服务类型:', videoService);
+               console.log('[Video节点] 模型:', videoModel, 'family:', family);
                console.log('[Video节点] inputImages:', {
                    count: inputImages.length,
                    hasImages: inputImages.length > 0,
@@ -2773,69 +2836,56 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                
                // 如果节点状态是 running 但没有内容，说明是恢复的未完成任务
                if ((node.status as string) === 'running' && savedTaskId && !hasVideoContent) {
-                   console.log('[Video节点] 检测到未完成的任务，恢复轮询:', savedTaskId);
+                   console.log('[Video节点] 检测到未完成的任务，恢复轮询:', savedTaskId, 'family:', family);
                    try {
-                       if (videoService === 'veo') {
-                           // Veo3.1 任务恢复
-                           const { getVeoTaskStatus, waitForVeoCompletion } = await import('../../services/veoService');
-                           const taskStatus = await getVeoTaskStatus(savedTaskId);
-                           console.log('[Video节点] Veo任务当前状态:', taskStatus.status);
-                           
-                           updateNode(nodeId, {
-                               data: { 
-                                   ...node.data, 
-                                   videoTaskStatus: taskStatus.status,
-                                   videoFailReason: taskStatus.failReason
-                               }
-                           });
-                           
+                       if (family === 'unified') {
+                           const { getUnifiedVideoTaskStatus, waitForUnifiedVideoCompletion } = await import('../../services/unifiedVideoService');
+                           const taskStatus = await getUnifiedVideoTaskStatus(savedTaskId);
+                           updateNode(nodeId, { data: { ...node.data, videoTaskStatus: taskStatus.status, videoFailReason: taskStatus.failReason } });
                            if (taskStatus.status === 'SUCCESS' && taskStatus.videoUrl) {
                                await downloadAndSaveVideo(taskStatus.videoUrl, nodeId, signal);
                            } else if (taskStatus.status === 'FAILURE') {
-                               updateNode(nodeId, { 
-                                   status: 'error',
-                                   data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.failReason || '未知错误' }
-                               });
+                               updateNode(nodeId, { status: 'error', data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.failReason || '未知错误' } });
                            } else {
-                               const videoUrl = await waitForVeoCompletion(savedTaskId, (progress, status) => {
+                               const videoUrl = await waitForUnifiedVideoCompletion(savedTaskId, (progress, status) => {
                                    updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                                });
-                               if (!signal.aborted && videoUrl) {
-                                   await downloadAndSaveVideo(videoUrl, nodeId, signal);
-                               }
+                               if (!signal.aborted && videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
+                           }
+                       } else if (family === 'kling') {
+                           const klingMode = node.data?.klingMode || 'text2video';
+                           const { getKlingTaskStatus, waitForKlingCompletion } = await import('../../services/klingVideoService');
+                           const taskStatus = await getKlingTaskStatus(savedTaskId, klingMode);
+                           updateNode(nodeId, { data: { ...node.data, videoTaskStatus: taskStatus.status, videoFailReason: taskStatus.failReason } });
+                           if (taskStatus.status === 'SUCCESS' && taskStatus.videoUrl) {
+                               await downloadAndSaveVideo(taskStatus.videoUrl, nodeId, signal);
+                           } else if (taskStatus.status === 'FAILURE') {
+                               updateNode(nodeId, { status: 'error', data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.failReason || '未知错误' } });
+                           } else {
+                               const videoUrl = await waitForKlingCompletion(savedTaskId, klingMode, (progress, status) => {
+                                   updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                               });
+                               if (!signal.aborted && videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
                            }
                        } else {
-                           // Sora 任务恢复
-                           const { getTaskStatus, waitForVideoCompletion } = await import('../../services/soraService');
-                           const taskStatus = await getTaskStatus(savedTaskId);
-                           console.log('[Video节点] Sora任务当前状态:', taskStatus.status);
-                           
-                           updateNode(nodeId, {
-                               data: { ...node.data, videoTaskStatus: taskStatus.status, videoFailReason: taskStatus.fail_reason }
-                           });
-                           
-                           if (taskStatus.status === 'SUCCESS' && taskStatus.data?.output) {
-                               await downloadAndSaveVideo(taskStatus.data.output, nodeId, signal);
+                           const { getMinimaxTaskStatus, waitForMinimaxCompletion } = await import('../../services/minimaxVideoService');
+                           const taskStatus = await getMinimaxTaskStatus(savedTaskId);
+                           updateNode(nodeId, { data: { ...node.data, videoTaskStatus: taskStatus.status, videoFailReason: taskStatus.failReason } });
+                           if (taskStatus.status === 'SUCCESS') {
+                               const videoUrl = taskStatus.videoUrl || (taskStatus.fileId ? await (await import('../../services/minimaxVideoService')).getMinimaxFileUrl(taskStatus.fileId) : undefined);
+                               if (videoUrl && !signal.aborted) await downloadAndSaveVideo(videoUrl, nodeId, signal);
                            } else if (taskStatus.status === 'FAILURE') {
-                               updateNode(nodeId, { 
-                                   status: 'error',
-                                   data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.fail_reason || '未知错误' }
-                               });
+                               updateNode(nodeId, { status: 'error', data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.failReason || '未知错误' } });
                            } else {
-                               const videoUrl = await waitForVideoCompletion(savedTaskId, (progress, status) => {
+                               const videoUrl = await waitForMinimaxCompletion(savedTaskId, (progress, status) => {
                                    updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                                });
-                               if (!signal.aborted && videoUrl) {
-                                   await downloadAndSaveVideo(videoUrl, nodeId, signal);
-                               }
+                               if (!signal.aborted && videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
                            }
                        }
                    } catch (err) {
                        console.error('[Video节点] 恢复任务失败:', err);
-                       updateNode(nodeId, { 
-                           status: 'error',
-                           data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: err instanceof Error ? err.message : String(err) }
-                       });
+                       updateNode(nodeId, { status: 'error', data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: err instanceof Error ? err.message : String(err) } });
                    }
                    return;
                }
@@ -2908,121 +2958,74 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                }
                
                try {
-                   if (videoService === 'veo') {
-                       // ===== Veo3.1 视频生成 =====
-                       const { createVeoTask, waitForVeoCompletion } = await import('../../services/veoService');
-                       
+                   const videoSize = node.data?.videoSize || '1280x720';
+                   const aspectRatio = (node.data?.veoAspectRatio || (videoSize === '720x1280' ? '9:16' : '16:9')) as '16:9' | '9:16';
+
+                   if (family === 'unified') {
                        const veoMode = node.data?.veoMode || 'text2video';
-                       const veoModel = node.data?.veoModel || 'veo3.1-fast';
-                       const veoAspectRatio = node.data?.veoAspectRatio || '16:9';
-                       const veoEnhancePrompt = node.data?.veoEnhancePrompt ?? false;
-                       const veoEnableUpsample = node.data?.veoEnableUpsample ?? false;
-                       
-                       // 校验图片数量
-                       if (veoMode === 'image2video' && processedImages.length === 0) {
-                           throw new Error('图生视频模式需要连接1张图片');
-                       }
-                       if (veoMode === 'keyframes' && processedImages.length < 2) {
-                           throw new Error('首尾帧模式需要连接2张图片（上=首帧，下=尾帧）');
-                       }
-                       if (veoMode === 'multi-reference' && processedImages.length === 0) {
-                           throw new Error('多图参考模式需要连接1-3张图片');
-                       }
-                       
-                       console.log('[Video节点] Veo3.1 开始生成:', {
-                           mode: veoMode,
-                           model: veoModel,
-                           prompt: combinedPrompt.slice(0, 100),
-                           aspectRatio: veoAspectRatio,
-                           enhancePrompt: veoEnhancePrompt,
-                           enableUpsample: veoEnableUpsample,
-                           imagesCount: processedImages.length
-                       });
-                       
-                       // 1. 创建 Veo 任务
-                       const taskId = await createVeoTask({
-                           prompt: combinedPrompt,
-                           model: veoModel as any,
-                           images: processedImages.length > 0 ? processedImages : undefined,
-                           aspectRatio: veoAspectRatio as any,
-                           enhancePrompt: veoEnhancePrompt,
-                           enableUpsample: veoEnableUpsample
-                       });
-                       
-                       console.log('[Video节点] Veo 任务已创建, taskId:', taskId);
-                       
-                       updateNode(nodeId, { data: { ...node.data, videoTaskId: taskId } });
-                       saveCurrentCanvas();
-                       
-                       // 2. 轮询等待完成
-                       const videoUrl = await waitForVeoCompletion(taskId, (progress, status) => {
-                           console.log(`[Video节点] Veo 进度: ${progress}%, 状态: ${status}`);
-                           updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
-                       });
-                       
-                       if (signal.aborted) {
-                           console.log('[Video节点] 任务已被中断');
-                           return;
-                       }
-                       
-                       if (videoUrl) {
-                           await downloadAndSaveVideo(videoUrl, nodeId, signal);
-                       } else {
-                           throw new Error('未返回视频URL');
-                       }
-                   } else {
-                       // ===== Sora 视频生成 =====
-                       const { createVideoTask, waitForVideoCompletion } = await import('../../services/soraService');
-                       
-                       const videoModel = node.data?.videoModel || 'sora-2';
-                       const videoSize = node.data?.videoSize || '1280x720';
-                       const aspectRatio = videoSize === '720x1280' ? '9:16' : '16:9';
-                       const duration = node.data?.videoSeconds || '10';
-                       const hd = videoModel === 'sora-2-pro';
-                       
-                       const isImageToVideo = processedImages.length > 0;
-                       const videoType = isImageToVideo ? '图生视频' : '文生视频';
-                       
-                       console.log('[Video节点] Sora 开始生成:', {
-                           type: videoType,
-                           prompt: combinedPrompt.slice(0, 100),
+                       if (veoMode === 'image2video' && processedImages.length === 0) throw new Error('图生视频模式需要连接1张图片');
+                       if (veoMode === 'keyframes' && processedImages.length < 2) throw new Error('首尾帧模式需要连接2张图片（上=首帧，下=尾帧）');
+                       if (veoMode === 'multi-reference' && processedImages.length === 0) throw new Error('多图参考模式需要连接1-3张图片');
+
+                       const { createUnifiedVideoTask, waitForUnifiedVideoCompletion } = await import('../../services/unifiedVideoService');
+                       const taskId = await createUnifiedVideoTask({
                            model: videoModel,
-                           aspectRatio,
-                           duration,
-                           imagesCount: processedImages.length
-                       });
-                       
-                       // 1. 创建 Sora 任务
-                       const taskId = await createVideoTask({
                            prompt: combinedPrompt,
-                           model: videoModel as any,
                            images: processedImages.length > 0 ? processedImages : undefined,
-                           aspectRatio: aspectRatio as any,
-                           hd: hd,
-                           duration: duration as any
+                           aspectRatio,
+                           duration: (node.data?.videoSeconds || '10') as '10' | '15' | '25',
+                           hd: videoModel === 'sora-2-pro',
+                           enhancePrompt: node.data?.veoEnhancePrompt ?? false,
+                           enableUpsample: node.data?.veoEnableUpsample ?? false,
                        });
-                       
-                       console.log('[Video节点] Sora 任务已创建, taskId:', taskId);
-                       
                        updateNode(nodeId, { data: { ...node.data, videoTaskId: taskId } });
                        saveCurrentCanvas();
-                       
-                       // 2. 轮询等待完成
-                       const videoUrl = await waitForVideoCompletion(taskId, (progress, status) => {
-                           console.log(`[Video节点] Sora 进度: ${progress}%, 状态: ${status}`);
+                       const videoUrl = await waitForUnifiedVideoCompletion(taskId, (progress, status) => {
                            updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                        });
-                       
-                       if (signal.aborted) {
-                           console.log('[Video节点] 任务已被中断');
+                       if (signal.aborted) return;
+                       if (videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
+                       else throw new Error('未返回视频URL');
+                   } else if (family === 'kling') {
+                       const klingMode = node.data?.klingMode || 'text2video';
+                       const { createKlingVideoTask, waitForKlingCompletion } = await import('../../services/klingVideoService');
+                       const taskId = await createKlingVideoTask({
+                           model: videoModel as 'kling-video-v2.6' | 'kling-video-o1',
+                           mode: klingMode,
+                           prompt: combinedPrompt,
+                           images: processedImages.length > 0 ? processedImages : undefined,
+                           aspectRatio: (node.data?.klingAspectRatio || '16:9') as '16:9' | '9:16',
+                       });
+                       updateNode(nodeId, { data: { ...node.data, videoTaskId: taskId } });
+                       saveCurrentCanvas();
+                       const videoUrl = await waitForKlingCompletion(taskId, klingMode, (progress, status) => {
+                           updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                       });
+                       if (signal.aborted) return;
+                       if (videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
+                       else throw new Error('未返回视频URL');
+                   } else {
+                       if (videoModel === 'minimax-hailuo-2.3-fast' && processedImages.length === 0) {
+                           updateNode(nodeId, { status: 'error', data: { ...node.data, videoFailReason: '海螺 2.3 Fast 仅支持图生视频，请连接图片节点作为输入' } });
                            return;
                        }
-                       
-                       if (videoUrl) {
-                           await downloadAndSaveVideo(videoUrl, nodeId, signal);
-                       } else {
-                           throw new Error('未返回视频URL');
-                       }
+                       // 与 Veo 一致：图片来自 resolveInputs(nodeId) + 所连 video-output 上游，已并入 inputImages → processedImages
+                       const { createMinimaxVideoTask, waitForMinimaxCompletion } = await import('../../services/minimaxVideoService');
+                       const taskId = await createMinimaxVideoTask({
+                           model: videoModel as 'minimax-hailuo-2.3' | 'minimax-hailuo-2.3-fast',
+                           prompt: combinedPrompt,
+                           images: processedImages.length > 0 ? processedImages : undefined,
+                           resolution: (node.data?.minimaxResolution || '1080P') as '768P' | '1080P',
+                           duration: node.data?.minimaxDuration ?? 6,
+                       });
+                       updateNode(nodeId, { data: { ...node.data, videoTaskId: taskId } });
+                       saveCurrentCanvas();
+                       const videoUrl = await waitForMinimaxCompletion(taskId, (progress, status) => {
+                           updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                       });
+                       if (signal.aborted) return;
+                       if (videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
+                       else throw new Error('未返回视频URL');
                    }
                } catch (err) {
                    console.error('[Video节点] 生成失败:', err);
@@ -5370,7 +5373,25 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             </svg>
 
             {/* Nodes */}
-            {nodes.map(node => (
+            {nodes.map(node => {
+                const hasUpstreamImageNode = (nodeId: string): boolean => {
+                    const visited = new Set<string>();
+                    const stack = [nodeId];
+                    while (stack.length > 0) {
+                        const id = stack.pop()!;
+                        if (visited.has(id)) continue;
+                        visited.add(id);
+                        for (const c of connections) {
+                            if (c.toNode !== id) continue;
+                            const from = nodes.find(n => n.id === c.fromNode);
+                            if (!from) continue;
+                            if (from.type === 'image') return true;
+                            stack.push(c.fromNode);
+                        }
+                    }
+                    return false;
+                };
+                return (
                 <CanvasNodeItem 
                     key={node.id}
                     node={node}
@@ -5382,6 +5403,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     creativeIdeasForImage={creativeIdeas?.map((i) => ({ id: i.id, title: i.title, imageUrl: i.imageUrl })) ?? []}
                     effectiveColor={node.type === 'relay' ? 'stroke-' + resolveEffectiveType(node.id).replace('text', 'emerald').replace('image', 'blue').replace('llm', 'purple') + '-400' : undefined}
                     hasDownstream={connections.some(c => c.fromNode === node.id)}
+                    hasImageInput={hasUpstreamImageNode(node.id)}
                     incomingConnections={connections.filter(c => c.toNode === node.id).map(c => ({ fromNode: c.fromNode, toPortKey: c.toPortKey }))}
                     onSelect={(id, multi) => {
                         const newSet = new Set(multi ? selectedNodeIds : []);
@@ -5491,7 +5513,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                         }
                     }}
                 />
-            ))}
+            ); })}
         </div>
 
         {/* Selection Box Overlay */}

@@ -38,8 +38,8 @@ export interface NodeData {
   inputImageUrl?: string; // 输入图片URL
   previewImage?: string; // 预览图片
   
-  // Video Node Specifics
-  videoService?: 'sora' | 'veo';
+  // Video Node Specifics（统一模型选择：videoModel 为唯一模型 id，family 由常量表推导）
+  videoService?: 'sora' | 'veo'; // 兼容旧画布，新画布仅用 videoModel
   videoModel?: string;
   videoSize?: string;
   videoSeconds?: string;
@@ -48,6 +48,10 @@ export interface NodeData {
   veoAspectRatio?: string;
   veoEnhancePrompt?: boolean;
   veoEnableUpsample?: boolean;
+  klingMode?: 'text2video' | 'image2video' | 'multi-image2video';
+  klingAspectRatio?: '16:9' | '9:16';
+  minimaxResolution?: '768P' | '1080P';
+  minimaxDuration?: 6 | 10;
   videoTaskId?: string;
   videoProgress?: number;
   videoTaskStatus?: string;
