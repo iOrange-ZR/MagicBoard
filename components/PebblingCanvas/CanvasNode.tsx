@@ -5,7 +5,7 @@ import { Icons } from './Icons';
 import { ChevronDown, Upload } from 'lucide-react';
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
 import { comfyuiUploadImage } from '../../services/api/comfyui';
-import { VIDEO_MODEL_LIST, getVideoModelInfo, isSoraModel, isVeoModel, isWanModel } from '../../constants/videoModels';
+import { VIDEO_MODEL_LIST, getVideoModelInfo, isSoraModel, isVeoModel } from '../../constants/videoModels';
 
 // 香蕉SVG图标组件
 const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
@@ -345,6 +345,7 @@ interface CanvasNodeProps {
   onExtractFrameFromExtractor?: (nodeId: string, time: number) => void; // 从帧提取器提取帧
   hasDownstream?: boolean; // 是否有下游连接
   hasImageInput?: boolean; // 上游是否已连接图片节点（用于海螺 2.3 Fast 等仅图生视频模型的提示）
+  imageInputCount?: number; // 直接连入的图片节点数量（≥2 时 Kling 不可开启音频）
   incomingConnections?: Array<{ fromNode: string; toPortKey?: string }>; // 连入当前节点的连接
   onRetryVideoDownload?: (nodeId: string) => void; // 重试视频下载
   comfyuiWorkflows?: Array<{ id: string; title: string; workflowApiJson: string; inputSlots: Array<{ slotKey: string; label: string; type: string; nodeId?: string; inputName?: string; exposed?: boolean; defaultValue?: string; description?: string }> }>; // ComfyUI Tab 中配置的工作流列表
@@ -372,6 +373,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   scale,
   effectiveColor,
   hasImageInput = false,
+  imageInputCount = 0,
   onCreateToolNode,
   onExtractFrame,
   onCreateFrameExtractor,
@@ -383,6 +385,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [localContent, setLocalContent] = useState(node.content);
   const [localPrompt, setLocalPrompt] = useState(node.data?.prompt || '');
+  const [localKlingNegativePrompt, setLocalKlingNegativePrompt] = useState(node.data?.klingNegativePrompt || '');
   const [localSystem, setLocalSystem] = useState(node.data?.systemInstruction || '');
   const [batchCount, setBatchCount] = useState(1); // 批量生成数量
   
@@ -438,6 +441,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   useEffect(() => {
     setLocalContent(node.content);
     setLocalPrompt(node.data?.prompt || '');
+    setLocalKlingNegativePrompt(node.data?.klingNegativePrompt || '');
     setLocalSystem(node.data?.systemInstruction || '');
     if (node.data?.resizeMode) setResizeMode(node.data.resizeMode);
     if (node.data?.resizeWidth) setResizeWidth(node.data.resizeWidth);
@@ -563,7 +567,8 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         content: localContent, 
         data: { 
             ...node.data, 
-            prompt: localPrompt, 
+            prompt: localPrompt,
+            klingNegativePrompt: localKlingNegativePrompt,
             systemInstruction: localSystem,
             resizeMode: resizeMode,
             resizeWidth: resizeWidth,
@@ -3548,15 +3553,16 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         const veoAspectRatio = node.data?.veoAspectRatio || '16:9';
         const veoEnhancePrompt = node.data?.veoEnhancePrompt ?? false;
         const veoEnableUpsample = node.data?.veoEnableUpsample ?? false;
-        const klingMode = node.data?.klingMode || 'text2video';
-        const klingAspectRatio = node.data?.klingAspectRatio || '16:9';
+        const klingMode = node.data?.klingMode || 'image2video';
+        const klingDuration = node.data?.klingDuration ?? '5';
+        const klingSound = node.data?.klingSound ?? 'off';
 
         const handleVideoSettingChange = (key: string, value: any) => {
             onUpdate(node.id, { data: { ...node.data, [key]: value } });
         };
 
         const modeSubtitle = family === 'kling'
-            ? (klingMode === 'text2video' ? 'TXT → VIDEO' : klingMode === 'image2video' ? 'IMG → VIDEO' : '多图参考 → VIDEO')
+            ? 'IMG → VIDEO'
             : family === 'unified' && isVeoModel(effectiveVideoModel)
                 ? (veoMode === 'text2video' ? 'TXT → VIDEO' : veoMode === 'image2video' ? 'IMG → VIDEO' : veoMode === 'keyframes' ? '首尾帧 → VIDEO' : '多图参考 → VIDEO')
                 : family === 'unified' && isSoraModel(effectiveVideoModel)
@@ -3585,14 +3591,35 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                 {/* Settings */}
                 <div className="flex-1 p-2 flex flex-col gap-2 overflow-hidden">
                     {/* Prompt - 可扩展的提示词区域 */}
-                    <textarea 
-                        className={`flex-1 min-h-[60px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
-                        placeholder="描述视频场景..."
-                        value={localPrompt}
-                        onChange={(e) => setLocalPrompt(e.target.value)}
-                        onBlur={handleUpdate}
-                        onMouseDown={(e) => e.stopPropagation()}
-                    />
+                    {family === 'kling' ? (
+                        <div className="flex flex-col gap-2 shrink-0">
+                            <textarea 
+                                className={`w-full min-h-[56px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
+                                placeholder="描述希望出现的画面..."
+                                value={localPrompt}
+                                onChange={(e) => setLocalPrompt(e.target.value)}
+                                onBlur={handleUpdate}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            />
+                            <textarea 
+                                className={`w-full min-h-[40px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
+                                placeholder="描述希望避免的内容（可选）"
+                                value={localKlingNegativePrompt}
+                                onChange={(e) => setLocalKlingNegativePrompt(e.target.value)}
+                                onBlur={handleUpdate}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            />
+                        </div>
+                    ) : (
+                        <textarea 
+                            className={`flex-1 min-h-[60px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
+                            placeholder="描述视频场景..."
+                            value={localPrompt}
+                            onChange={(e) => setLocalPrompt(e.target.value)}
+                            onBlur={handleUpdate}
+                            onMouseDown={(e) => e.stopPropagation()}
+                        />
+                    )}
                     
                     {/* Unified: Sora 系 */}
                     {family === 'unified' && isSoraModel(effectiveVideoModel) && (
@@ -3823,69 +3850,54 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         </div>
                     )}
 
-                    {/* Unified: Wan 系 - 比例 + 模式 */}
-                    {family === 'unified' && isWanModel(effectiveVideoModel) && (
-                        <div className="flex flex-col gap-1.5 shrink-0">
-                            <div className={`flex ${controlBg} rounded p-0.5`}>
-                                <button
-                                    className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${veoAspectRatio === '16:9' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('veoAspectRatio', '16:9')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    16:9
-                                </button>
-                                <button
-                                    className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${veoAspectRatio === '9:16' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('veoAspectRatio', '9:16')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    9:16
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Kling: 模式 + 比例 */}
+                    {/* Kling: 时长 + 开启音频 */}
                     {family === 'kling' && (
                         <div className="flex flex-col gap-1.5 shrink-0">
-                            <div className={`flex ${controlBg} rounded p-0.5`}>
-                                <button
-                                    className={`flex-1 px-1.5 py-1 text-[8px] font-medium rounded transition-all ${klingMode === 'text2video' ? (isLightCanvas ? 'bg-purple-100 text-purple-700' : 'bg-purple-500/30 text-purple-300') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('klingMode', 'text2video')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    文生视频
-                                </button>
-                                <button
-                                    className={`flex-1 px-1.5 py-1 text-[8px] font-medium rounded transition-all ${klingMode === 'image2video' ? (isLightCanvas ? 'bg-purple-100 text-purple-700' : 'bg-purple-500/30 text-purple-300') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('klingMode', 'image2video')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    图生视频
-                                </button>
-                                <button
-                                    className={`flex-1 px-1.5 py-1 text-[8px] font-medium rounded transition-all ${klingMode === 'multi-image2video' ? (isLightCanvas ? 'bg-purple-100 text-purple-700' : 'bg-purple-500/30 text-purple-300') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('klingMode', 'multi-image2video')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    多图参考
-                                </button>
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>时长</span>
+                                <div className={`flex ${controlBg} rounded p-0.5`}>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingDuration === '5' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingDuration', '5')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        5s
+                                    </button>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingDuration === '10' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingDuration', '10')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        10s
+                                    </button>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingDuration === 'auto' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingDuration', 'auto')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        自动
+                                    </button>
+                                </div>
                             </div>
-                            <div className={`flex ${controlBg} rounded p-0.5`}>
-                                <button
-                                    className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingAspectRatio === '16:9' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('klingAspectRatio', '16:9')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    16:9
-                                </button>
-                                <button
-                                    className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingAspectRatio === '9:16' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
-                                    onClick={() => handleVideoSettingChange('klingAspectRatio', '9:16')}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                    9:16
-                                </button>
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>开启音频</span>
+                                <div className={`flex ${controlBg} rounded p-0.5`}>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${(klingSound === 'off' || imageInputCount >= 2) ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingSound', 'off')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        关
+                                    </button>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${imageInputCount >= 2 ? 'opacity-50 cursor-not-allowed' : ''} ${(klingSound === 'on' && imageInputCount < 2) ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => imageInputCount >= 2 ? undefined : handleVideoSettingChange('klingSound', 'on')}
+                                        onMouseDown={(e) => { e.stopPropagation(); if (imageInputCount >= 2) e.preventDefault(); }}
+                                        title={imageInputCount >= 2 ? '连接 2 张图时不可用' : undefined}
+                                    >
+                                        开
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -3901,6 +3913,11 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             {isI2VOnly && !hasImageInput && (
                                 <div className={`px-2 py-1.5 rounded text-[9px] ${isLightCanvas ? 'bg-amber-50 text-amber-800' : 'bg-amber-500/20 text-amber-200'}`}>
                                     此模型仅支持图生视频，请连接图片节点作为输入
+                                </div>
+                            )}
+                            {imageInputCount >= 2 && (
+                                <div className={`px-2 py-1.5 rounded text-[9px] ${isLightCanvas ? 'bg-amber-50 text-amber-800' : 'bg-amber-500/20 text-amber-200'}`}>
+                                    海螺不支持多图，请仅连接 1 张图片
                                 </div>
                             )}
                             <div className={`flex ${controlBg} rounded p-0.5`}>

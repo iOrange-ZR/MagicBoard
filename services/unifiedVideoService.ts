@@ -1,5 +1,5 @@
 /**
- * 统一视频生成服务（Sora + Veo + Wan）
+ * 统一视频生成服务（Sora + Veo）
  * 同一网关：POST/GET /v2/videos/generations，通过 body.model 区分模型。
  */
 
@@ -14,10 +14,7 @@ export type UnifiedVideoModel =
   | 'veo3.1-pro'
   | 'veo3.1-pro-4k'
   | 'veo3.1-components'
-  | 'veo3.1-components-4k'
-  | 'wan2.6-r2v'
-  | 'wan2.6-t2v'
-  | 'wan2.6-i2v';
+  | 'veo3.1-components-4k';
 
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILURE';
 
@@ -78,13 +75,12 @@ export async function createUnifiedVideoTask(params: UnifiedVideoParams): Promis
 
   const isSora = model.startsWith('sora-');
   const isVeo = model.startsWith('veo3.1');
-  const isWan = model.startsWith('wan2.6');
 
   if (isSora) {
     if (params.duration) body.duration = params.duration;
     if (params.hd !== undefined) body.hd = params.hd;
   }
-  if (isVeo || isWan) {
+  if (isVeo) {
     if (params.enhancePrompt !== undefined) body.enhance_prompt = params.enhancePrompt;
     if (params.enableUpsample !== undefined && !model.includes('components')) {
       body.enable_upsample = params.enableUpsample;

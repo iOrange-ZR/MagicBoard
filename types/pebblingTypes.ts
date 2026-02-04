@@ -49,7 +49,9 @@ export interface NodeData {
   veoEnhancePrompt?: boolean;
   veoEnableUpsample?: boolean;
   klingMode?: 'text2video' | 'image2video' | 'multi-image2video';
-  klingAspectRatio?: '16:9' | '9:16';
+  klingDuration?: '5' | '10' | 'auto';
+  klingSound?: 'on' | 'off';
+  klingNegativePrompt?: string;
   minimaxResolution?: '768P' | '1080P';
   minimaxDuration?: 6 | 10;
   videoTaskId?: string;

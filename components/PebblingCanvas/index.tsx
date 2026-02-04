@@ -2251,13 +2251,15 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   });
               } else if (family === 'kling') {
                   const { createKlingVideoTask, waitForKlingCompletion } = await import('../../services/klingVideoService');
-                  const klingMode = sourceNode.data?.klingMode || 'text2video';
+                  const klingMode = sourceNode.data?.klingMode || 'image2video';
                   const taskId = await createKlingVideoTask({
                       model: videoModel as 'kling-video-v2.6' | 'kling-video-o1',
                       mode: klingMode,
                       prompt: combinedPrompt,
                       images: processedImages.length > 0 ? processedImages : undefined,
-                      aspectRatio: (sourceNode.data?.klingAspectRatio || '16:9') as '16:9' | '9:16',
+                      duration: sourceNode.data?.klingDuration ?? '5',
+                      sound: processedImages.length >= 2 ? 'off' : (sourceNode.data?.klingSound ?? 'off'),
+                      negative_prompt: sourceNode.data?.klingNegativePrompt || undefined,
                   });
                   videoUrl = await waitForKlingCompletion(taskId, klingMode, (progress, status) => {
                       updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
@@ -2265,6 +2267,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               } else {
                   if (videoModel === 'minimax-hailuo-2.3-fast' && processedImages.length === 0) {
                       updateNode(outputNodeId, { status: 'error', data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoFailReason: '海螺 2.3 Fast 仅支持图生视频，请连接图片节点作为输入' } });
+                      return;
+                  }
+                  if (processedImages.length >= 2) {
+                      updateNode(outputNodeId, { status: 'error', data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoFailReason: '海螺不支持多图，请仅连接 1 张图片' } });
                       return;
                   }
                   // 与 Veo 一致：图片来自 resolveInputs(sourceNodeId) + 所连 video-output 上游，已并入 inputImages → processedImages
@@ -2853,7 +2859,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                                if (!signal.aborted && videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
                            }
                        } else if (family === 'kling') {
-                           const klingMode = node.data?.klingMode || 'text2video';
+                           const klingMode = node.data?.klingMode || 'image2video';
                            const { getKlingTaskStatus, waitForKlingCompletion } = await import('../../services/klingVideoService');
                            const taskStatus = await getKlingTaskStatus(savedTaskId, klingMode);
                            updateNode(nodeId, { data: { ...node.data, videoTaskStatus: taskStatus.status, videoFailReason: taskStatus.failReason } });
@@ -2987,14 +2993,16 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                        if (videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
                        else throw new Error('未返回视频URL');
                    } else if (family === 'kling') {
-                       const klingMode = node.data?.klingMode || 'text2video';
+                       const klingMode = node.data?.klingMode || 'image2video';
                        const { createKlingVideoTask, waitForKlingCompletion } = await import('../../services/klingVideoService');
                        const taskId = await createKlingVideoTask({
                            model: videoModel as 'kling-video-v2.6' | 'kling-video-o1',
                            mode: klingMode,
                            prompt: combinedPrompt,
                            images: processedImages.length > 0 ? processedImages : undefined,
-                           aspectRatio: (node.data?.klingAspectRatio || '16:9') as '16:9' | '9:16',
+                           duration: node.data?.klingDuration ?? '5',
+                           sound: processedImages.length >= 2 ? 'off' : (node.data?.klingSound ?? 'off'),
+                           negative_prompt: node.data?.klingNegativePrompt || undefined,
                        });
                        updateNode(nodeId, { data: { ...node.data, videoTaskId: taskId } });
                        saveCurrentCanvas();
@@ -3007,6 +3015,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                    } else {
                        if (videoModel === 'minimax-hailuo-2.3-fast' && processedImages.length === 0) {
                            updateNode(nodeId, { status: 'error', data: { ...node.data, videoFailReason: '海螺 2.3 Fast 仅支持图生视频，请连接图片节点作为输入' } });
+                           return;
+                       }
+                       if (processedImages.length >= 2) {
+                           updateNode(nodeId, { status: 'error', data: { ...node.data, videoFailReason: '海螺不支持多图，请仅连接 1 张图片' } });
                            return;
                        }
                        // 与 Veo 一致：图片来自 resolveInputs(nodeId) + 所连 video-output 上游，已并入 inputImages → processedImages
@@ -5391,6 +5403,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     }
                     return false;
                 };
+                const imageInputCount = (() => {
+                    const fromIds = new Set(connections.filter(c => c.toNode === node.id).map(c => c.fromNode));
+                    return Array.from(fromIds).filter(id => nodes.find(n => n.id === id)?.type === 'image').length;
+                })();
                 return (
                 <CanvasNodeItem 
                     key={node.id}
@@ -5404,6 +5420,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     effectiveColor={node.type === 'relay' ? 'stroke-' + resolveEffectiveType(node.id).replace('text', 'emerald').replace('image', 'blue').replace('llm', 'purple') + '-400' : undefined}
                     hasDownstream={connections.some(c => c.fromNode === node.id)}
                     hasImageInput={hasUpstreamImageNode(node.id)}
+                    imageInputCount={imageInputCount}
                     incomingConnections={connections.filter(c => c.toNode === node.id).map(c => ({ fromNode: c.fromNode, toPortKey: c.toPortKey }))}
                     onSelect={(id, multi) => {
                         const newSet = new Set(multi ? selectedNodeIds : []);
