@@ -271,3 +271,136 @@ export async function waitForKlingCompletion(
   }
   return waitForKlingImage2VideoCompletion(taskId, onProgress, maxAttempts, interval);
 }
+
+// ---------- 可灵 O1 Omni 视频 API ----------
+
+const KLING_OMNI_VIDEO_URL = `${KLING_API_BASE}/kling/v1/videos/omni-video`;
+
+/**
+ * 判断视频 URL 是否可被可灵服务器访问（公网 URL）。
+ * 本地路径、data/blob、localhost 等均不可被服务器访问，不应传入 video_list。
+ */
+export function isKlingServerAccessibleVideoUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const u = url.trim();
+  if (u.startsWith('data:') || u.startsWith('blob:')) return false;
+  if (u.startsWith('/files/') || u.startsWith('/api/')) return false;
+  try {
+    if (u.startsWith('http://') || u.startsWith('https://')) {
+      const host = new URL(u).hostname;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '') return false;
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+export interface KlingO1ImageItem {
+  image_url: string; // URL 或纯 Base64
+  type?: 'first_frame' | 'end_frame';
+}
+
+export interface KlingO1VideoItem {
+  video_url: string;
+  refer_type?: 'feature' | 'base';
+  keep_original_sound?: 'yes' | 'no';
+}
+
+export interface KlingO1ElementItem {
+  element_id: number;
+}
+
+export interface KlingO1TaskParams {
+  prompt: string;
+  image_list?: KlingO1ImageItem[];
+  video_list?: KlingO1VideoItem[];
+  element_list?: KlingO1ElementItem[];
+  mode?: 'std' | 'pro';
+  aspect_ratio?: '16:9' | '9:16' | '1:1';
+  duration?: '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10';
+  watermark_info?: { enabled: boolean };
+}
+
+/**
+ * 创建可灵 O1 Omni 视频任务
+ * POST https://api.bltcy.ai/kling/v1/videos/omni-video
+ */
+export async function createKlingO1Task(params: KlingO1TaskParams): Promise<string> {
+  const config = getVideoApiConfig();
+  if (!config.apiKey) throw new Error('请先配置视频 API Key');
+
+  const image_list = (params.image_list ?? []).map((item) => ({
+    image_url: imageToApiValue(item.image_url),
+    ...(item.type != null ? { type: item.type } : {}),
+  }));
+
+  const video_list = params.video_list ?? [];
+  const element_list = params.element_list ?? [];
+
+  const body: Record<string, unknown> = {
+    model_name: 'kling-video-o1',
+    prompt: params.prompt,
+    image_list,
+    element_list,
+    mode: params.mode ?? 'pro',
+    aspect_ratio: params.aspect_ratio ?? '16:9',
+    duration: params.duration ?? '5',
+    watermark_info: params.watermark_info ?? { enabled: false },
+  };
+
+  if (video_list.length > 0) {
+    body.video_list = video_list;
+  }
+
+  const res = await fetch(KLING_OMNI_VIDEO_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${sanitizeHeaderValue(config.apiKey)}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const raw = await res.text();
+  if (!res.ok) throw new Error(`Kling O1 创建任务失败 (${res.status}): ${raw}`);
+
+  let json: { code?: number | string; message?: string; data?: { task_id?: string } };
+  try {
+    json = JSON.parse(raw) as typeof json;
+  } catch {
+    throw new Error(`Kling O1 响应非 JSON: ${raw}`);
+  }
+
+  const isError = json.code != null && json.code !== 0 && json.code !== '0';
+  if (isError) {
+    const msg = json.message || '';
+    if (json.code === 'get_ratios_error' || /media_duration|audio duration|get.*duration/i.test(msg)) {
+      throw new Error('参考视频无法被服务器解析或访问。请使用可公网访问的 MP4/MOV 视频 URL（不要使用本地路径或 data 链接）；若无需参考视频可先断开视频输入再试。');
+    }
+    throw new Error(msg || `Kling O1 业务错误: ${raw}`);
+  }
+
+  const taskId = json.data?.task_id;
+  if (!taskId) throw new Error(`Kling O1 未返回 task_id: ${raw}`);
+  return String(taskId);
+}
+
+/**
+ * 查询可灵 O1 Omni 任务状态（复用 image2video 任务查询端点）
+ */
+export async function getKlingOmniTaskStatus(
+  taskId: string
+): Promise<{ status: KlingTaskStatus; progress: number; videoUrl?: string; failReason?: string }> {
+  return getKlingImage2VideoTaskStatus(taskId);
+}
+
+export async function waitForKlingOmniCompletion(
+  taskId: string,
+  onProgress?: (progress: number, status: string) => void,
+  maxAttempts = 360,
+  interval = 5000
+): Promise<string> {
+  return waitForKlingImage2VideoCompletion(taskId, onProgress, maxAttempts, interval);
+}

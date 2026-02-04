@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
-import { CanvasNode, NodeType, getNodeTypeColor } from '../../types/pebblingTypes';
+import { CanvasNode, NodeType, getNodeTypeColor, KlingO1InputItem } from '../../types/pebblingTypes';
 import { Icons } from './Icons';
 import { ChevronDown, Upload } from 'lucide-react';
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
 import { comfyuiUploadImage } from '../../services/api/comfyui';
 import { VIDEO_MODEL_LIST, getVideoModelInfo, isSoraModel, isVeoModel } from '../../constants/videoModels';
+import { isKlingServerAccessibleVideoUrl } from '../../services/klingVideoService';
 
 // 香蕉SVG图标组件
 const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
@@ -352,6 +353,8 @@ interface CanvasNodeProps {
   comfyuiAddresses?: Array<{ id: string; label: string; baseUrl: string }>; // ComfyUI Tab 中配置的地址列表，画布节点只能选择
   /** 创意库列表，用于 ComfyUI IMAGE 参数「从创意库选择」 */
   creativeIdeasForImage?: Array<{ id: number; title: string; imageUrl: string }>;
+  /** 可灵 O1：上游输入节点列表（图片/视频名称），用于展示与占位符索引 */
+  klingO1Inputs?: KlingO1InputItem[];
 }
 
 const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
@@ -380,7 +383,8 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   onExtractFrameFromExtractor,
   hasDownstream = false,
   incomingConnections = [],
-  onRetryVideoDownload
+  onRetryVideoDownload,
+  klingO1Inputs = []
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [localContent, setLocalContent] = useState(node.content);
@@ -432,6 +436,24 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   const [rhBatchCount, setRhBatchCount] = useState(1); // rh-config 节点批次数量
   const nodeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const klingPromptRef = useRef<HTMLTextAreaElement>(null);
+
+  const insertKlingPlaceholder = (placeholder: string) => {
+    const ta = klingPromptRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const before = localPrompt.slice(0, start);
+    const after = localPrompt.slice(end);
+    const newPrompt = before + placeholder + after;
+    setLocalPrompt(newPrompt);
+    onUpdate(node.id, { data: { ...node.data, prompt: newPrompt } });
+    setTimeout(() => {
+      ta.focus();
+      const pos = start + placeholder.length;
+      ta.setSelectionRange(pos, pos);
+    }, 0);
+  };
 
   // 节点视频/输出更新时清除“用 img 回退”标记，以便重新尝试用 video 播放
   useEffect(() => {
@@ -3556,6 +3578,9 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         const klingMode = node.data?.klingMode || 'image2video';
         const klingDuration = node.data?.klingDuration ?? '5';
         const klingSound = node.data?.klingSound ?? 'off';
+        const isKlingO1 = effectiveVideoModel === 'kling-video-o1';
+        const klingResolution = node.data?.klingResolution ?? '1080p';
+        const klingAspectRatio = node.data?.klingAspectRatio ?? '16:9';
 
         const handleVideoSettingChange = (key: string, value: any) => {
             onUpdate(node.id, { data: { ...node.data, [key]: value } });
@@ -3594,21 +3619,29 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                     {family === 'kling' ? (
                         <div className="flex flex-col gap-2 shrink-0">
                             <textarea 
+                                ref={isKlingO1 ? klingPromptRef : undefined}
                                 className={`w-full min-h-[56px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
-                                placeholder="描述希望出现的画面..."
+                                placeholder={isKlingO1 ? "描述希望出现的画面。可用 <<<image_1>>>、<<<video_1>>> 等指定图片/视频" : "描述希望出现的画面..."}
                                 value={localPrompt}
                                 onChange={(e) => setLocalPrompt(e.target.value)}
                                 onBlur={handleUpdate}
                                 onMouseDown={(e) => e.stopPropagation()}
                             />
-                            <textarea 
-                                className={`w-full min-h-[40px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
-                                placeholder="描述希望避免的内容（可选）"
-                                value={localKlingNegativePrompt}
-                                onChange={(e) => setLocalKlingNegativePrompt(e.target.value)}
-                                onBlur={handleUpdate}
-                                onMouseDown={(e) => e.stopPropagation()}
-                            />
+                            {isKlingO1 && klingO1Inputs.length > 0 && (
+                                <p className={`text-[9px] ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
+                                    输入节点（{klingO1Inputs.length}）：{klingO1Inputs.map((i, idx) => <span key={i.nodeId}>{idx ? '、' : ''}{i.title}</span>)}
+                                </p>
+                            )}
+                            {!isKlingO1 && (
+                                <textarea 
+                                    className={`w-full min-h-[40px] ${controlBg} border rounded p-2 text-[11px] outline-none resize-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-yellow-500 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-yellow-500/50 placeholder-zinc-600'}`}
+                                    placeholder="描述希望避免的内容（可选）"
+                                    value={localKlingNegativePrompt}
+                                    onChange={(e) => setLocalKlingNegativePrompt(e.target.value)}
+                                    onBlur={handleUpdate}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                />
+                            )}
                         </div>
                     ) : (
                         <textarea 
@@ -3850,8 +3883,116 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         </div>
                     )}
 
-                    {/* Kling: 时长 + 开启音频 */}
-                    {family === 'kling' && (
+                    {/* 可灵 O1：输入节点、生成模式、时长、比例 */}
+                    {family === 'kling' && isKlingO1 && (
+                        <div className="flex flex-col gap-1.5 shrink-0">
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>输入节点</span>
+                                {klingO1Inputs.length === 0 ? (
+                                    <p className={`text-[9px] ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>连接图片或视频节点</p>
+                                ) : (
+                                    <ul className="space-y-1.5 max-h-32 overflow-y-auto">
+                                        {klingO1Inputs.map((item) => {
+                                            const imageNum = item.type === 'image' ? klingO1Inputs.filter(i => i.type === 'image').findIndex(i => i.nodeId === item.nodeId) + 1 : 0;
+                                            const videoNum = item.type === 'video' ? klingO1Inputs.filter(i => i.type === 'video').findIndex(i => i.nodeId === item.nodeId) + 1 : 0;
+                                            const placeholder = item.type === 'image' ? `<<<image_${imageNum}>>>` : `<<<video_${videoNum}>>>`;
+                                            const displayUrl = item.url.startsWith('data:') || item.url.startsWith('http') ? item.url : (item.url.startsWith('/files/') ? `${typeof window !== 'undefined' ? window.location.origin : ''}${item.url}` : item.url);
+                                            return (
+                                                <li key={item.nodeId} className={`flex items-center gap-2 rounded p-1 ${controlBg}`}>
+                                                    <div className="w-10 h-10 rounded overflow-hidden shrink-0 bg-black/20 flex items-center justify-center relative">
+                                                        {item.type === 'image' && (
+                                                            <>
+                                                                <img src={displayUrl} alt="" className="w-full h-full object-cover absolute inset-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const next = (e.target as HTMLImageElement).nextElementSibling as HTMLElement; if (next) next.classList.remove('hidden'); }} />
+                                                                <Icons.Image size={18} className="hidden text-zinc-500 shrink-0 relative z-0" />
+                                                            </>
+                                                        )}
+                                                        {item.type === 'video' && (
+                                                            <>
+                                                                <video src={displayUrl} className="w-full h-full object-cover absolute inset-0" muted preLoad="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; const next = (e.target as HTMLVideoElement).nextElementSibling as HTMLElement; if (next) next.classList.remove('hidden'); }} />
+                                                                <Icons.Video size={18} className="hidden text-zinc-500 shrink-0 relative z-0" />
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                    <span className={`flex-1 min-w-0 text-[9px] truncate ${isLightCanvas ? 'text-gray-700' : 'text-zinc-300'}`} title={item.title}>
+                                                        {item.title || (item.type === 'video' ? '视频' : '图片')}
+                                                        {item.type === 'video' && !isKlingServerAccessibleVideoUrl(item.url) && (
+                                                            <span className={`block truncate text-[8px] ${isLightCanvas ? 'text-amber-600' : 'text-amber-400'}`}>（本地地址无法使用，将阻止生成；视频上传功能服务器开发中）</span>
+                                                        )}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        className={`shrink-0 px-2 py-1 text-[9px] font-medium rounded ${isLightCanvas ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-white/20 text-zinc-200 hover:bg-white/30'}`}
+                                                        onClick={(e) => { e.stopPropagation(); insertKlingPlaceholder(placeholder); }}
+                                                        onMouseDown={(e) => e.stopPropagation()}
+                                                        title={`插入 ${placeholder}`}
+                                                    >插入</button>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
+                                {(klingO1Inputs.filter(i => i.type === 'video').length > 1) || (klingO1Inputs.filter(i => i.type === 'video').length === 1 && klingO1Inputs.filter(i => i.type === 'image').length > 4) || (klingO1Inputs.filter(i => i.type === 'video').length === 0 && klingO1Inputs.filter(i => i.type === 'image').length > 7) ? (
+                                    <p className="text-[9px] text-amber-600">至多 7 张图片，或 1 个视频 + 4 张图片</p>
+                                ) : null}
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>生成模式</span>
+                                <div className={`flex ${controlBg} rounded p-0.5`}>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingResolution === '720p' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingResolution', '720p')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >720p</button>
+                                    <button
+                                        className={`flex-1 px-2 py-1 text-[9px] font-medium rounded transition-all ${klingResolution === '1080p' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingResolution', '1080p')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >1080p</button>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>生成时长</span>
+                                <div className={`flex ${controlBg} rounded p-0.5 flex-wrap gap-0.5`}>
+                                    {(['3', '4', '5', '6', '7', '8', '9', '10'] as const).map((d) => (
+                                        <button
+                                            key={d}
+                                            className={`flex-1 min-w-[28px] px-1.5 py-1 text-[9px] font-medium rounded transition-all ${klingDuration === d ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                            onClick={() => handleVideoSettingChange('klingDuration', d)}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                        >{d}s</button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>比例</span>
+                                <div className={`flex ${controlBg} rounded p-0.5`}>
+                                    <button
+                                        className={`flex-1 px-1.5 py-1 text-[9px] font-medium rounded transition-all ${klingAspectRatio === 'auto' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingAspectRatio', 'auto')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >智能</button>
+                                    <button
+                                        className={`flex-1 px-1.5 py-1 text-[9px] font-medium rounded transition-all ${klingAspectRatio === '9:16' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingAspectRatio', '9:16')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >9:16</button>
+                                    <button
+                                        className={`flex-1 px-1.5 py-1 text-[9px] font-medium rounded transition-all ${klingAspectRatio === '1:1' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingAspectRatio', '1:1')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >1:1</button>
+                                    <button
+                                        className={`flex-1 px-1.5 py-1 text-[9px] font-medium rounded transition-all ${klingAspectRatio === '16:9' ? (isLightCanvas ? 'bg-gray-200 text-gray-800' : 'bg-white/20 text-white') : (isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-zinc-400 hover:text-zinc-200')}`}
+                                        onClick={() => handleVideoSettingChange('klingAspectRatio', '16:9')}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >16:9</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Kling 2.6：时长 + 开启音频 */}
+                    {family === 'kling' && !isKlingO1 && (
                         <div className="flex flex-col gap-1.5 shrink-0">
                             <div className="flex flex-col gap-1">
                                 <span className={`text-[9px] font-medium ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>时长</span>

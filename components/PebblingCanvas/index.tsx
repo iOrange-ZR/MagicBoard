@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { CanvasNode, Vec2, NodeType, Connection, GenerationConfig, NodeData, CanvasPreset, PresetInput } from '../../types/pebblingTypes';
+import { CanvasNode, Vec2, NodeType, Connection, GenerationConfig, NodeData, CanvasPreset, PresetInput, KlingO1InputItem } from '../../types/pebblingTypes';
 import { CreativeIdea } from '../../types';
 import FloatingInput from './FloatingInput';
 import CanvasNodeItem from './CanvasNode';
@@ -1696,6 +1696,45 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       return { images, texts };
   };
 
+  /** 可灵 O1：解析直接连入的图片/视频上游，返回有序的 images、videos、items（含节点名称），不递归。按连接顺序排列，新加入的素材在后面。约束：至多 7 张图或 1 视频+4 张图。 */
+  const resolveInputsForKlingO1 = (nodeId: string): { images: string[]; videos: string[]; items: KlingO1InputItem[] } => {
+      const inputConnections = connectionsRef.current.filter(c => c.toNode === nodeId);
+      const inputNodes = inputConnections
+          .map(c => nodesRef.current.find(n => n.id === c.fromNode))
+          .filter((n): n is CanvasNode => !!n);
+      // 保持连接顺序：先连的在前，后连的（新加入的）在后，不按 Y 排序
+
+      const images: string[] = [];
+      const videos: string[] = [];
+      const items: KlingO1InputItem[] = [];
+
+      for (const node of inputNodes) {
+          if (node.type === 'image') {
+              const hasUpstream = connectionsRef.current.some(c => c.toNode === node.id);
+              const valid = hasUpstream
+                  ? (node.status === 'completed' && isValidImage(node.content))
+                  : isValidImage(node.content);
+              if (valid && node.content) {
+                  images.push(node.content);
+                  items.push({ type: 'image', nodeId: node.id, title: node.title || '图片', url: node.content });
+              }
+          } else if (node.type === 'video-output' || node.type === 'video') {
+              const videoUrl = node.content && isValidVideo(node.content) ? node.content : (node.data?.videoUrl ?? node.data?.outputVideos?.[0]);
+              if (videoUrl && typeof videoUrl === 'string') {
+                  videos.push(videoUrl);
+                  items.push({ type: 'video', nodeId: node.id, title: node.title || '视频', url: videoUrl });
+              }
+          } else if (node.type === 'frame-extractor') {
+              if (node.content && isValidImage(node.content)) {
+                  images.push(node.content);
+                  items.push({ type: 'image', nodeId: node.id, title: node.title || '帧', url: node.content });
+              }
+          }
+      }
+
+      return { images, videos, items };
+  };
+
   // --- 批量生成：先创建 N 个 image 节点并执行，全部完成后合并为一个预览节点 ---
   const handleBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
       updateNode(sourceNodeId, { status: 'running' });
@@ -2134,21 +2173,46 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
 
   // 视频节点批量执行：先创建 N 个 video-output 节点，全部完成后合并为一个预览节点
   const handleVideoBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
-      let inputs = resolveInputs(sourceNodeId);
-      // 图片可能连在 video-output 上：合并 source 上游 + 已存在的 output 节点上游
-      const outConns = connectionsRef.current.filter(
-        c => c.fromNode === sourceNodeId && nodesRef.current.find(n => n.id === c.toNode)?.type === 'video-output'
-      );
-      for (const c of outConns) {
-        const outInputs = resolveInputs(c.toNode, new Set());
-        if (outInputs.images.length > 0) inputs = { images: [...inputs.images, ...outInputs.images], texts: [...inputs.texts, ...outInputs.texts] };
+      const videoModel = sourceNode.data?.videoModel || (sourceNode.data?.videoService === 'veo' ? (sourceNode.data?.veoModel || 'veo3.1-fast') : 'sora-2');
+      const isKlingO1 = videoModel === 'kling-video-o1';
+
+      let inputs: { images: string[]; texts: string[] };
+      let inputVideos: string[] = [];
+      if (isKlingO1) {
+          const o1Resolved = resolveInputsForKlingO1(sourceNodeId);
+          const { images: o1Images, videos: o1Videos } = o1Resolved;
+          if (o1Videos.length > 1 || (o1Videos.length === 1 && o1Images.length > 4) || (o1Videos.length === 0 && o1Images.length > 7)) {
+              updateNode(sourceNodeId, { status: 'error', data: { ...sourceNode.data, videoFailReason: '可灵 O1 仅支持至多 7 张图片，或 1 个视频 + 4 张图片' } });
+              return;
+          }
+          inputs = { images: o1Images, texts: [] };
+          inputVideos = o1Videos;
+      } else {
+          inputs = resolveInputs(sourceNodeId);
+          const outConns = connectionsRef.current.filter(
+            c => c.fromNode === sourceNodeId && nodesRef.current.find(n => n.id === c.toNode)?.type === 'video-output'
+          );
+          for (const c of outConns) {
+            const outInputs = resolveInputs(c.toNode, new Set());
+            if (outInputs.images.length > 0) inputs = { images: [...inputs.images, ...outInputs.images], texts: [...inputs.texts, ...outInputs.texts] };
+          }
       }
+
       const combinedPrompt = inputs.texts.join('\n') || sourceNode.data?.prompt || '';
       const inputImages = inputs.images;
       if (!combinedPrompt) {
           updateNode(sourceNodeId, { status: 'error' });
           return;
       }
+
+      if (isKlingO1 && inputVideos.length > 0) {
+          const { isKlingServerAccessibleVideoUrl } = await import('../../services/klingVideoService');
+          if (!isKlingServerAccessibleVideoUrl(inputVideos[0])) {
+              updateNode(sourceNodeId, { status: 'error', data: { ...sourceNode.data, videoFailReason: '当前为本地或不可访问的视频地址，无法作为参考视频。视频上传功能服务器尚在开发中，请暂时使用可公网访问的视频 URL，或先断开视频输入仅用图片生成。' } });
+              return;
+          }
+      }
+
       const baseX = sourceNode.x + sourceNode.width + 150;
       const nodeHeight = 300;
       const nodeWidth = 400;
@@ -2183,7 +2247,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       updateNode(sourceNodeId, { status: 'completed' });
       saveCurrentCanvas();
 
-      const videoModel = sourceNode.data?.videoModel || (sourceNode.data?.videoService === 'veo' ? (sourceNode.data?.veoModel || 'veo3.1-fast') : 'sora-2');
       const family = getVideoModelFamily(videoModel) || 'unified';
       const runOne = async (outputNodeId: string, index: number) => {
           const abortController = new AbortController();
@@ -2249,15 +2312,38 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   videoUrl = await waitForUnifiedVideoCompletion(taskId, (progress, status) => {
                       updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                   });
+              } else if (family === 'kling' && videoModel === 'kling-video-o1') {
+                  const { createKlingO1Task, waitForKlingOmniCompletion, isKlingServerAccessibleVideoUrl } = await import('../../services/klingVideoService');
+                  if (inputVideos.length > 0 && !isKlingServerAccessibleVideoUrl(inputVideos[0])) {
+                      updateNode(outputNodeId, { status: 'error', data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoFailReason: '当前为本地或不可访问的视频地址，无法作为参考视频。视频上传功能服务器尚在开发中，请暂时使用可公网访问的视频 URL，或先断开视频输入仅用图片生成。' } });
+                      return;
+                  }
+                  const klingResolution = sourceNode.data?.klingResolution ?? '1080p';
+                  const klingAspectRatio = sourceNode.data?.klingAspectRatio ?? '16:9';
+                  const rawDur = sourceNode.data?.klingDuration ?? '5';
+                  const klingDuration: '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' = (rawDur === 'auto' || !['3','4','5','6','7','8','9','10'].includes(rawDur)) ? '5' : rawDur;
+                  const taskId = await createKlingO1Task({
+                      prompt: combinedPrompt,
+                      image_list: processedImages.length > 0 ? processedImages.map(url => ({ image_url: url })) : undefined,
+                      video_list: inputVideos.length > 0 ? [{ video_url: inputVideos[0], refer_type: 'base', keep_original_sound: 'no' }] : undefined,
+                      element_list: [],
+                      mode: klingResolution === '720p' ? 'std' : 'pro',
+                      aspect_ratio: (klingAspectRatio === 'auto' ? '16:9' : klingAspectRatio) as '16:9' | '9:16' | '1:1',
+                      duration: klingDuration,
+                  });
+                  videoUrl = await waitForKlingOmniCompletion(taskId, (progress, status) => {
+                      updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                  });
               } else if (family === 'kling') {
                   const { createKlingVideoTask, waitForKlingCompletion } = await import('../../services/klingVideoService');
                   const klingMode = sourceNode.data?.klingMode || 'image2video';
+                  const klingDur26 = sourceNode.data?.klingDuration === '10' ? '10' : sourceNode.data?.klingDuration === 'auto' ? 'auto' : '5';
                   const taskId = await createKlingVideoTask({
                       model: videoModel as 'kling-video-v2.6' | 'kling-video-o1',
                       mode: klingMode,
                       prompt: combinedPrompt,
                       images: processedImages.length > 0 ? processedImages : undefined,
-                      duration: sourceNode.data?.klingDuration ?? '5',
+                      duration: klingDur26,
                       sound: processedImages.length >= 2 ? 'off' : (sourceNode.data?.klingSound ?? 'off'),
                       negative_prompt: sourceNode.data?.klingNegativePrompt || undefined,
                   });
@@ -2797,20 +2883,36 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                }
           }
           else if (node.type === 'video') {
-               const nodePrompt = node.data?.prompt || '';
-               const inputTexts = inputs.texts.join('\n');
-               const combinedPrompt = inputTexts || nodePrompt;
-               // 视频节点可能只连到 video-output，图片可能连在 output 上：合并本节点 + 所连 output 的上游
-               let inputImages = inputs.images;
-               const outConns = connectionsRef.current.filter(
-                 c => c.fromNode === nodeId && nodesRef.current.find(n => n.id === c.toNode)?.type === 'video-output'
-               );
-               for (const c of outConns) {
-                 const outInputs = resolveInputs(c.toNode, new Set());
-                 if (outInputs.images.length > 0) inputImages = [...inputImages, ...outInputs.images];
-               }
                const videoModel = node.data?.videoModel || (node.data?.videoService === 'veo' ? (node.data?.veoModel || 'veo3.1-fast') : 'sora-2');
                const family = getVideoModelFamily(videoModel) || 'unified';
+               const isKlingO1 = videoModel === 'kling-video-o1';
+
+               let inputImages: string[];
+               let inputVideos: string[] = [];
+               let combinedPrompt: string;
+               if (isKlingO1) {
+                   const o1Resolved = resolveInputsForKlingO1(nodeId);
+                   if (o1Resolved.videos.length > 1 || (o1Resolved.videos.length === 1 && o1Resolved.images.length > 4) || (o1Resolved.videos.length === 0 && o1Resolved.images.length > 7)) {
+                       updateNode(nodeId, { status: 'error', data: { ...node.data, videoFailReason: '可灵 O1 仅支持至多 7 张图片，或 1 个视频 + 4 张图片' } });
+                       return;
+                   }
+                   inputImages = o1Resolved.images;
+                   inputVideos = o1Resolved.videos;
+                   combinedPrompt = node.data?.prompt || '';
+               } else {
+                   const nodePrompt = node.data?.prompt || '';
+                   const inputTexts = inputs.texts.join('\n');
+                   combinedPrompt = inputTexts || nodePrompt;
+                   let merged = inputs.images;
+                   const outConns = connectionsRef.current.filter(
+                     c => c.fromNode === nodeId && nodesRef.current.find(n => n.id === c.toNode)?.type === 'video-output'
+                   );
+                   for (const c of outConns) {
+                     const outInputs = resolveInputs(c.toNode, new Set());
+                     if (outInputs.images.length > 0) merged = [...merged, ...outInputs.images];
+                   }
+                   inputImages = merged;
+               }
 
                console.log('[Video节点] ========== 开始处理 ==========');
                console.log('[Video节点] 模型:', videoModel, 'family:', family);
@@ -2854,6 +2956,20 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                                updateNode(nodeId, { status: 'error', data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.failReason || '未知错误' } });
                            } else {
                                const videoUrl = await waitForUnifiedVideoCompletion(savedTaskId, (progress, status) => {
+                                   updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                               });
+                               if (!signal.aborted && videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
+                           }
+                       } else if (family === 'kling' && videoModel === 'kling-video-o1') {
+                           const { getKlingOmniTaskStatus, waitForKlingOmniCompletion } = await import('../../services/klingVideoService');
+                           const taskStatus = await getKlingOmniTaskStatus(savedTaskId);
+                           updateNode(nodeId, { data: { ...node.data, videoTaskStatus: taskStatus.status, videoFailReason: taskStatus.failReason } });
+                           if (taskStatus.status === 'SUCCESS' && taskStatus.videoUrl) {
+                               await downloadAndSaveVideo(taskStatus.videoUrl, nodeId, signal);
+                           } else if (taskStatus.status === 'FAILURE') {
+                               updateNode(nodeId, { status: 'error', data: { ...node.data, videoTaskId: undefined, videoTaskStatus: 'FAILURE', videoFailReason: taskStatus.failReason || '未知错误' } });
+                           } else {
+                               const videoUrl = await waitForKlingOmniCompletion(savedTaskId, (progress, status) => {
                                    updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                                });
                                if (!signal.aborted && videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
@@ -2992,15 +3108,43 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                        if (signal.aborted) return;
                        if (videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
                        else throw new Error('未返回视频URL');
+                   } else if (family === 'kling' && videoModel === 'kling-video-o1') {
+                       const { createKlingO1Task, waitForKlingOmniCompletion, isKlingServerAccessibleVideoUrl } = await import('../../services/klingVideoService');
+                       if (inputVideos.length > 0 && !isKlingServerAccessibleVideoUrl(inputVideos[0])) {
+                           updateNode(nodeId, { status: 'error', data: { ...node.data, videoFailReason: '当前为本地或不可访问的视频地址，无法作为参考视频。视频上传功能服务器尚在开发中，请暂时使用可公网访问的视频 URL，或先断开视频输入仅用图片生成。' } });
+                           return;
+                       }
+                       const klingResolution = node.data?.klingResolution ?? '1080p';
+                       const klingAspectRatio = node.data?.klingAspectRatio ?? '16:9';
+                       const rawDur = node.data?.klingDuration ?? '5';
+                       const klingDuration: '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' = (rawDur === 'auto' || !['3','4','5','6','7','8','9','10'].includes(rawDur)) ? '5' : rawDur;
+                       const taskId = await createKlingO1Task({
+                           prompt: combinedPrompt,
+                           image_list: processedImages.length > 0 ? processedImages.map(url => ({ image_url: url })) : undefined,
+                           video_list: inputVideos.length > 0 ? [{ video_url: inputVideos[0], refer_type: 'base', keep_original_sound: 'no' }] : undefined,
+                           element_list: [],
+                           mode: klingResolution === '720p' ? 'std' : 'pro',
+                           aspect_ratio: (klingAspectRatio === 'auto' ? '16:9' : klingAspectRatio) as '16:9' | '9:16' | '1:1',
+                           duration: klingDuration,
+                       });
+                       updateNode(nodeId, { data: { ...node.data, videoTaskId: taskId } });
+                       saveCurrentCanvas();
+                       const videoUrl = await waitForKlingOmniCompletion(taskId, (progress, status) => {
+                           updateNode(nodeId, { data: { ...nodesRef.current.find(n => n.id === nodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
+                       });
+                       if (signal.aborted) return;
+                       if (videoUrl) await downloadAndSaveVideo(videoUrl, nodeId, signal);
+                       else throw new Error('未返回视频URL');
                    } else if (family === 'kling') {
                        const klingMode = node.data?.klingMode || 'image2video';
+                       const klingDur26 = node.data?.klingDuration === '10' ? '10' : node.data?.klingDuration === 'auto' ? 'auto' : '5';
                        const { createKlingVideoTask, waitForKlingCompletion } = await import('../../services/klingVideoService');
                        const taskId = await createKlingVideoTask({
                            model: videoModel as 'kling-video-v2.6' | 'kling-video-o1',
                            mode: klingMode,
                            prompt: combinedPrompt,
                            images: processedImages.length > 0 ? processedImages : undefined,
-                           duration: node.data?.klingDuration ?? '5',
+                           duration: klingDur26,
                            sound: processedImages.length >= 2 ? 'off' : (node.data?.klingSound ?? 'off'),
                            negative_prompt: node.data?.klingNegativePrompt || undefined,
                        });
@@ -5422,6 +5566,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     hasImageInput={hasUpstreamImageNode(node.id)}
                     imageInputCount={imageInputCount}
                     incomingConnections={connections.filter(c => c.toNode === node.id).map(c => ({ fromNode: c.fromNode, toPortKey: c.toPortKey }))}
+                    klingO1Inputs={node.type === 'video' && node.data?.videoModel === 'kling-video-o1' ? resolveInputsForKlingO1(node.id).items : undefined}
                     onSelect={(id, multi) => {
                         const newSet = new Set(multi ? selectedNodeIds : []);
                         newSet.add(id);

@@ -3,6 +3,14 @@ export type NodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'video-out
 
 export type NodeStatus = 'idle' | 'running' | 'completed' | 'error';
 
+/** 可灵 O1 上游输入项（图片/视频节点），用于 UI 展示与 prompt 占位符索引 */
+export interface KlingO1InputItem {
+  type: 'image' | 'video';
+  nodeId: string;
+  title: string;
+  url: string;
+}
+
 export interface GenerationConfig {
   aspectRatio?: string; // "1:1", "16:9", "9:16", "4:3" - 可选，不传则保持原图比例
   resolution?: string; // "1K", "2K", "4K"
@@ -49,9 +57,13 @@ export interface NodeData {
   veoEnhancePrompt?: boolean;
   veoEnableUpsample?: boolean;
   klingMode?: 'text2video' | 'image2video' | 'multi-image2video';
-  klingDuration?: '5' | '10' | 'auto';
+  klingDuration?: '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'auto';
   klingSound?: 'on' | 'off';
   klingNegativePrompt?: string;
+  /** 可灵 O1：生成模式 → API mode（720p→std, 1080p→pro） */
+  klingResolution?: '720p' | '1080p';
+  /** 可灵 O1：画面比例，auto 表示智能 */
+  klingAspectRatio?: 'auto' | '9:16' | '1:1' | '16:9';
   minimaxResolution?: '768P' | '1080P';
   minimaxDuration?: 6 | 10;
   videoTaskId?: string;
