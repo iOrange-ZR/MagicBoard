@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ThirdPartyApiConfig, getApiConfig, saveApiConfig, checkBalance } from '../../services/pebblingGeminiService';
 import { SoraConfig, getSoraConfig, saveSoraConfig } from '../../services/soraService';
+import { sanitizeHeaderValue } from '../../utils/headers';
 import { Icons } from './Icons';
 
 // RunningHub 配置
@@ -101,7 +102,7 @@ const ApiSettings: React.FC<ApiSettingsProps> = ({ isOpen, onClose }) => {
       saveApiConfig(config);
       const response = await fetch(`${config.baseUrl}/v1/models`, {
         headers: {
-          'Authorization': `Bearer ${config.apiKey}`,
+          'Authorization': `Bearer ${sanitizeHeaderValue(config.apiKey)}`,
           'Content-Type': 'application/json'
         }
       });

@@ -1474,6 +1474,109 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         );
     }
 
+    // 预览节点 - 多图/多视频对比，用户选一张作封面
+    if (node.type === 'preview') {
+        const previewItems = node.data?.previewItems ?? [];
+        const expectedCount = node.data?.previewExpectedCount;
+        const coverIndex = Math.min(
+            Math.max(0, node.data?.previewCoverIndex ?? 0),
+            Math.max(0, previewItems.length - 1)
+        );
+        const setCover = (index: number) => {
+            const url = previewItems[index];
+            if (url) {
+                onUpdate(node.id, {
+                    content: url,
+                    data: { ...node.data, previewCoverIndex: index }
+                });
+            }
+        };
+        const cols = previewItems.length <= 2 ? previewItems.length : 2;
+        const rows = Math.ceil(previewItems.length / cols) || 1;
+        const previewRunning = node.status === 'running';
+        const previewError = node.status === 'error';
+        const progressText = expectedCount != null
+            ? `生成中 ${previewItems.length}/${expectedCount}`
+            : '生成中…';
+        const footerText = previewRunning
+            ? progressText
+            : previewError
+                ? (node.data?.error ? errorToDisplayMessage(node.data.error) : '生成失败')
+                : previewItems.length > 0
+                    ? `已完成 ${previewItems.length} 张`
+                    : '暂无预览';
+
+        return (
+            <div className="w-full h-full flex flex-col rounded-xl overflow-hidden relative shadow-lg" style={{ backgroundColor: themeColors.nodeBg, border: `1px solid ${isLightCanvas ? 'rgba(125,163,184,0.4)' : 'rgba(125,163,184,0.4)'}` }}>
+                <div className="h-8 flex items-center justify-between px-3 shrink-0" style={{ borderBottom: `1px solid rgba(125,163,184,0.2)`, backgroundColor: isLightCanvas ? 'rgba(125,163,184,0.08)' : 'rgba(125,163,184,0.1)' }}>
+                    <span className="text-[10px] font-bold" style={{ color: isLightCanvas ? '#0369a1' : '#7dd3fc' }}>预览节点</span>
+                </div>
+                <div className="flex-1 p-2 overflow-auto min-h-0 relative">
+                    {previewItems.length === 0 && !previewError ? (
+                        <div className="w-full h-full flex items-center justify-center rounded-lg" style={{ backgroundColor: isLightCanvas ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)' }}>
+                            <span className="text-[10px]" style={{ color: themeColors.textMuted }}>{previewRunning ? progressText : '暂无预览'}</span>
+                        </div>
+                    ) : previewError ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center rounded-lg p-3 text-center" style={{ backgroundColor: isLightCanvas ? 'rgba(254,202,202,0.15)' : 'rgba(254,202,202,0.1)' }}>
+                            <span className="text-[10px] text-red-400 font-medium">生成失败</span>
+                            {node.data?.error && (
+                                <span className="text-[9px] mt-1 break-words max-w-full" style={{ color: themeColors.textMuted }}>{errorToDisplayMessage(node.data.error)}</span>
+                            )}
+                        </div>
+                    ) : (
+                        <div
+                            className="w-full h-full grid gap-1.5"
+                            style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
+                        >
+                            {previewItems.map((url, i) => {
+                                const isVideo = url.includes('.mp4') || url.startsWith('data:video') || (node.data?.previewItemTypes?.[i] === 'video');
+                                const isSelected = i === coverIndex;
+                                return (
+                                    <div
+                                        key={i}
+                                        onClick={(e) => { e.stopPropagation(); setCover(i); }}
+                                        className="relative rounded-lg overflow-hidden cursor-pointer flex items-center justify-center bg-black/20"
+                                        style={{
+                                            border: isSelected ? '2px solid #3b82f6' : `1px solid ${isLightCanvas ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
+                                            minHeight: 60
+                                        }}
+                                    >
+                                        {isVideo ? (
+                                            <video src={url} className="w-full h-full object-contain" muted playsInline preload="metadata" />
+                                        ) : (
+                                            <img src={url} alt="" className="w-full h-full object-contain" draggable={false} />
+                                        )}
+                                        <span className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: isLightCanvas ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.5)', color: isLightCanvas ? '#374151' : '#e5e7eb' }}>
+                                            {i + 1}
+                                        </span>
+                                        {isSelected && (
+                                            <div className="absolute top-1 left-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-500 text-white">
+                                                <Icons.Check size={10} />
+                                                引用
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+                <div className="h-6 px-3 flex items-center justify-between gap-2 text-[10px] shrink-0" style={{ backgroundColor: themeColors.footerBg, borderTop: '1px solid rgba(125,163,184,0.1)', color: themeColors.textMuted }}>
+                    <span className="truncate min-w-0">{footerText}</span>
+                </div>
+                {previewRunning && (
+                    <div className="absolute inset-0 backdrop-blur-[2px] flex flex-col items-center justify-center z-30 rounded-b-xl" style={{ backgroundColor: isLightCanvas ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                        <div className="w-8 h-8 border-2 border-sky-400/50 border-t-sky-400 rounded-full animate-spin mb-2" />
+                        <span className="text-[10px] font-medium" style={{ color: isLightCanvas ? '#1e293b' : '#e2e8f0' }}>{progressText}</span>
+                        {previewItems.length > 0 && (
+                            <span className="text-[9px] mt-0.5" style={{ color: themeColors.textMuted }}>已生成 {previewItems.length} 张</span>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     // RunningHub节点 - 调用RunningHub AI应用
     if (node.type === 'runninghub') {
         const webappId = node.data?.webappId || '';

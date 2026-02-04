@@ -2,6 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import type { GenerateContentResponse, Part } from "@google/genai";
 import { GeneratedContent, CreativeIdea, SmartPlusConfig, BPField, BPAgentModel, ThirdPartyApiConfig, NanoBananaRequest, NanoBananaResponse, OpenAIChatRequest, OpenAIChatResponse, CreativeCategoryType, CREATIVE_CATEGORIES } from '../types';
+import { sanitizeHeaderValue } from '../utils/headers';
 
 let ai: GoogleGenAI | null = null;
 
@@ -196,7 +197,7 @@ export const editImageWithThirdPartyApi = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${thirdPartyConfig!.apiKey}`
+        'Authorization': `Bearer ${sanitizeHeaderValue(thirdPartyConfig!.apiKey)}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -290,7 +291,7 @@ export const chatWithThirdPartyApi = async (
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Authorization': `Bearer ${thirdPartyConfig!.apiKey}`
+        'Authorization': `Bearer ${sanitizeHeaderValue(thirdPartyConfig!.apiKey)}`
       },
       body: JSON.stringify(requestBody)
     });

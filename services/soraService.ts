@@ -3,6 +3,8 @@
  * 使用 /v2/videos/generations 异步任务接口
  */
 
+import { sanitizeHeaderValue } from '../utils/headers';
+
 // 视频模型类型
 export type VideoModel = 'sora-2' | 'sora-2-pro';
 
@@ -115,7 +117,7 @@ export async function createVideoTask(params: VideoGenerationParams): Promise<st
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${sanitizeHeaderValue(config.apiKey)}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -148,7 +150,7 @@ export async function getTaskStatus(taskId: string): Promise<TaskQueryResponse> 
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${sanitizeHeaderValue(config.apiKey)}`
       }
     });
 

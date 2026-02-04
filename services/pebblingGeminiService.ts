@@ -133,7 +133,7 @@ export const generateCreativeText = async (prompt: string): Promise<{ title: str
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${require('../utils/headers').sanitizeHeaderValue(config.apiKey)}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -213,7 +213,7 @@ export const generateAdvancedLLM = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${require('../utils/headers').sanitizeHeaderValue(config.apiKey)}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -272,7 +272,7 @@ export const generateCreativeImage = async (prompt: string, genConfig?: Generati
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`
+          'Authorization': `Bearer ${require('../utils/headers').sanitizeHeaderValue(config.apiKey)}`
         },
         body: JSON.stringify(requestBody),
         signal // Pass abort signal
@@ -362,7 +362,7 @@ export const editCreativeImage = async (base64Images: string[], prompt: string, 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`
+          'Authorization': `Bearer ${require('../utils/headers').sanitizeHeaderValue(config.apiKey)}`
         },
         body: JSON.stringify(requestBody),
         signal // Pass abort signal
@@ -442,7 +442,7 @@ export const checkBalance = async (): Promise<string | null> => {
     try {
       const res = await fetch(`${config.baseUrl}${endpoint}`, {
         headers: {
-          'Authorization': `Bearer ${config.apiKey}`,
+          'Authorization': `Bearer ${require('../utils/headers').sanitizeHeaderValue(config.apiKey)}`,
           'Content-Type': 'application/json'
         }
       });

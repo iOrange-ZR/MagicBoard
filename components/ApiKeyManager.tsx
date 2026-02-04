@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Key as KeyIcon, CheckCircle2 as CheckCircleIcon, ExternalLink as ExternalLinkIcon, Wallet as WalletIcon, Zap as ZapIcon } from 'lucide-react';
 import { ThirdPartyApiConfig } from '../types';
 import { getRunningHubConfig, saveRunningHubConfig } from '../services/api/runninghub';
+import { sanitizeHeaderValue } from '../utils/headers';
 
 interface ApiKeyManagerProps {
   apiKey: string;
@@ -128,7 +129,7 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
         try {
           const res = await fetch(`${baseUrl}${endpoint}`, {
             headers: {
-              'Authorization': `Bearer ${thirdPartyConfig.apiKey}`,
+              'Authorization': `Bearer ${sanitizeHeaderValue(thirdPartyConfig.apiKey)}`,
               'Content-Type': 'application/json'
             }
           });

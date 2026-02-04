@@ -14,8 +14,9 @@ import { runAIApp, getAIAppInfo } from '../../services/api/runninghub';
 import { comfyuiSubmitPrompt, comfyuiGetHistory, getComfyUIConfig, getComfyUIWorkflows } from '../../services/api/comfyui';
 import type { ComfyUIWorkflowConfig, ComfyUIAddress } from '../../services/api/comfyui';
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import * as canvasApi from '../../services/api/canvas';
-import { downloadRemoteToOutput } from '../../services/api/files';
+import { downloadRemoteToOutput, saveVideoToOutput } from '../../services/api/files';
 import { Icons } from './Icons';
 
 // === 画布用API适配器，桥接主项目的geminiService ===
@@ -466,25 +467,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [apiConfigured, setApiConfigured] = useState(false);
 
-  // 画布主题（深色/浅色）
-  const [canvasTheme, setCanvasTheme] = useState<'dark' | 'light'>(() => {
-    try {
-      const saved = localStorage.getItem('pebbling_canvas_theme');
-      return (saved === 'light' || saved === 'dark') ? saved : 'dark';
-    } catch {
-      return 'dark';
-    }
-  });
-  const isLightCanvas = canvasTheme === 'light';
-
-  // 保存画布主题到 localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('pebbling_canvas_theme', canvasTheme);
-    } catch (e) {
-      console.error('Failed to save canvas theme:', e);
-    }
-  }, [canvasTheme]);
+  // 画布主题与全局主题同步（使用 ThemeContext，不再单独维护）
+  const { themeName, setTheme } = useTheme();
+  const isLightCanvas = themeName === 'light';
 
   // Check API configuration on mount
   useEffect(() => {
@@ -559,12 +544,24 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       console.log('[画布切换] 📥 开始调用 canvasApi.getCanvas:', canvasId.slice(0, 12));
       const result = await canvasApi.getCanvas(canvasId);
       if (result.success && result.data) {
-        const loadedNodes = result.data.nodes || [];
+        let loadedNodes = result.data.nodes || [];
         const loadedConnections = result.data.connections || [];
+        
+        // 规范化预览节点：确保 content 与 previewItems[previewCoverIndex] 一致，便于刷新后恢复选中封面
+        loadedNodes = loadedNodes.map((n: CanvasNode) => {
+          if (n.type !== 'preview' || !n.data?.previewItems?.length) return n;
+          const items = n.data.previewItems;
+          const coverIndex = Math.min(Math.max(0, n.data.previewCoverIndex ?? 0), items.length - 1);
+          const expectedContent = items[coverIndex] ?? items[0] ?? '';
+          if (expectedContent && (!n.content || n.content !== expectedContent)) {
+            return { ...n, content: expectedContent };
+          }
+          return n;
+        });
         
         console.log('[画布切换] 📦 后端返回数据:', result.data.name);
         console.log('[画布切换] 📦 loadedNodes.length:', loadedNodes.length);
-        console.log('[画布切换] 📦 loadedNodes:', JSON.stringify(loadedNodes.map(n => ({ id: n.id.slice(0, 8), type: n.type }))));
+        console.log('[画布切换] 📦 loadedNodes:', JSON.stringify(loadedNodes.map((n: CanvasNode) => ({ id: n.id.slice(0, 8), type: n.type }))));
         
         // 🔧 关键修复3：先更新 currentCanvasId，再更新 nodes/connections
         // 这样自动保存的 useEffect 就会看到正确的 canvasId
@@ -711,6 +708,43 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     
     // 本地化图片内容：将base64/临时URL转换为本地文件（保存到画布专属文件夹）
     const localizedNodes = await Promise.all(nodesRef.current.map(async (node) => {
+      // 预览节点：本地化 previewItems 及选中的 content，保证刷新后多图和选中封面可恢复
+      if (node.type === 'preview' && node.data?.previewItems?.length) {
+        const items = node.data.previewItems;
+        const types = node.data.previewItemTypes;
+        const coverIndex = Math.min(Math.max(0, node.data.previewCoverIndex ?? 0), items.length - 1);
+        const localizedItems: string[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const url = items[i];
+          const isVideo = types?.[i] === 'video' || url.includes('.mp4') || url.startsWith('data:video');
+          const isBase64 = url.startsWith('data:');
+          const isTempUrl = (url.startsWith('http') || url.startsWith('//')) && !url.includes('/files/');
+          let newUrl = url;
+          try {
+            if (isBase64 && url.startsWith('data:image')) {
+              const result = await canvasApi.saveCanvasImage(url, currentCanvasName, `${node.id}_p${i}`, currentCanvasId);
+              if (result?.success && result.data?.url) newUrl = result.data.url;
+            } else if (isBase64 && url.startsWith('data:video')) {
+              const result = await saveVideoToOutput(url, `canvas_${node.id}_p${i}_${Date.now()}.mp4`);
+              if (result?.success && result.data?.url) newUrl = result.data.url;
+            } else if (isTempUrl) {
+              const ext = isVideo ? 'mp4' : 'png';
+              const result = await downloadRemoteToOutput(url, `canvas_${node.id}_p${i}_${Date.now()}.${ext}`);
+              if (result?.success && result.data?.url) newUrl = result.data.url;
+            }
+          } catch (e) {
+            console.warn(`[Canvas] 预览项本地化失败 [${node.id.slice(0, 8)}][${i}]:`, e);
+          }
+          localizedItems.push(newUrl);
+        }
+        const newContent = localizedItems[coverIndex] ?? localizedItems[0] ?? node.content ?? '';
+        return {
+          ...node,
+          content: newContent,
+          data: { ...node.data, previewItems: localizedItems }
+        };
+      }
+
       // 只处理有图片内容的节点
       if (!node.content) return node;
       
@@ -1300,6 +1334,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       if (type === 'rh-param') { width = 280; height = 56; }
       // 画板节点需要更大的尺寸（约4个图片节点大小）
       if (type === 'drawing-board') { width = 800; height = 700; }
+      if (type === 'preview') { width = 320; height = 320; }
 
       if (position) {
           x = position.x;
@@ -1458,11 +1493,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   };
   
   // Helper: 下载视频并保存（通过后端代理，绕过CORS，节省浏览器内存）
-  const downloadAndSaveVideo = async (videoUrl: string, nodeId: string, signal: AbortSignal) => {
+  // 当 returnUrlOnly 为 true 时只返回本地 URL，不更新节点（用于预览节点批量收集）
+  const downloadAndSaveVideo = async (videoUrl: string, nodeId: string, signal: AbortSignal, returnUrlOnly?: boolean): Promise<string | undefined> => {
       console.log('[Video节点] 视频生成成功, 开始后端代理下载:', videoUrl);
       
       try {
-          // 通过后端代理下载视频（绕过CORS，节省浏览器内存）
           const response = await fetch('/api/files/download-remote-video', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1480,56 +1515,53 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               throw new Error(result.error || '后端返回数据异常');
           }
           
-          // 检查是否被中断
           if (signal.aborted) {
               console.log('[Video节点] 下载后检测到中断');
-              return;
+              return undefined;
           }
           
-          const localVideoUrl = result.data.url; // 本地文件路径，如 /files/output/video_xxx.mp4
+          const localVideoUrl = result.data.url;
           console.log('[Video节点] 视频已保存到本地:', result.data.filename);
           
-          // 更新节点内容为本地URL（不是base64，节省内存）
-          // 重要：清除 videoTaskId 和 videoTaskStatus，否则UI会一直显示生成中
+          if (returnUrlOnly) {
+              return localVideoUrl;
+          }
+          
           updateNode(nodeId, { 
               content: localVideoUrl, 
               status: 'completed',
               data: { 
                   ...nodesRef.current.find(n => n.id === nodeId)?.data, 
                   videoTaskId: undefined,
-                  videoTaskStatus: undefined, // 清除任务状态
-                  videoProgress: undefined,   // 清除进度
-                  videoFailReason: undefined  // 清除错误信息
+                  videoTaskStatus: undefined,
+                  videoProgress: undefined,
+                  videoFailReason: undefined
               }
           });
           
-          // 保存画布
           saveCurrentCanvas();
-          
-          // 🔧 同步视频到桌面（复用图片回调，桌面会显示为视频图标）
-          // 添加延迟确保视频文件完全写入后再提取缩略图
           if (onImageGenerated) {
               setTimeout(() => {
                   onImageGenerated(localVideoUrl, '视频生成结果', currentCanvasId || undefined, canvasName);
               }, 500);
           }
-          
           console.log('[Video节点] 视频处理完成');
+          return localVideoUrl;
       } catch (downloadErr) {
           console.error('[Video节点] 后端代理下载失败:', downloadErr);
-          if (!signal.aborted) {
-              // 失败时保留原始URL，方便用户手动下载
+          if (!signal.aborted && !returnUrlOnly) {
               updateNode(nodeId, { 
                   status: 'error',
                   data: { 
                       ...nodesRef.current.find(n => n.id === nodeId)?.data, 
                       videoTaskId: undefined,
                       videoFailReason: `下载失败: ${downloadErr instanceof Error ? downloadErr.message : String(downloadErr)}`,
-                      videoUrl: videoUrl // 保留原始URL
+                      videoUrl: videoUrl
                   }
               });
               saveCurrentCanvas();
           }
+          return undefined;
       }
   };
 
@@ -1644,6 +1676,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   });
                   foundImageInThisPath = true;
               }
+          } else if (node.type === 'preview') {
+              // 预览节点：输出为当前选中的封面（用户未选则默认第一张）
+              if (node.content && (isValidImage(node.content) || isValidVideo(node.content))) {
+                  images.push(node.content);
+              }
+              foundImageInThisPath = true;
           }
           // relay 节点没有自身输出，继续传递
 
@@ -1657,65 +1695,33 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       return { images, texts };
   };
 
-  // --- 批量生成：创建多个结果节点并并发执行 ---
+  // --- 批量生成：先创建 N 个 image 节点并执行，全部完成后合并为一个预览节点 ---
   const handleBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
-      // 立即标记源节点为 running，防止重复点击
       updateNode(sourceNodeId, { status: 'running' });
-      
-      console.log(`[批量生成] 开始生成 ${count} 个结果节点`);
-      // 🔍 调试：查看源节点的设置
-      console.log('[批量生成] 源节点信息:', {
-          nodeId: sourceNodeId.slice(0, 8),
-          nodeType: sourceNode.type,
-          nodeData: sourceNode.data,
-          settings: sourceNode.data?.settings,
-          aspectRatio: sourceNode.data?.settings?.aspectRatio,
-          resolution: sourceNode.data?.settings?.resolution
-      });
-      
-      // 获取源节点的位置和输入
       const inputs = resolveInputs(sourceNodeId);
-      const nodePrompt = sourceNode.data?.prompt || '';
-      const inputTexts = inputs.texts.join('\n');
-      // 🔧 上游输入优先替代节点自身prompt
-      const combinedPrompt = inputTexts || nodePrompt;
+      const combinedPrompt = inputs.texts.join('\n') || sourceNode.data?.prompt || '';
       const inputImages = inputs.images;
-      
-      // 获取源节点自身的图片
-      let imageSource: string[] = [];
-      if (inputImages.length > 0) {
-          imageSource = inputImages;
-      } else if (isValidImage(sourceNode.content)) {
-          imageSource = [sourceNode.content];
-      }
-      
-      // 检查是否可以执行
+      let imageSource: string[] = inputImages.length > 0 ? inputImages : (isValidImage(sourceNode.content) ? [sourceNode.content] : []);
       const hasPrompt = !!combinedPrompt;
       const hasImage = imageSource.length > 0;
-      
       if (!hasPrompt && !hasImage) {
-          console.warn('[批量生成] 无提示词且无图片，无法执行');
-          updateNode(sourceNodeId, { status: 'idle' }); // 恢复状态
+          updateNode(sourceNodeId, { status: 'idle' });
           return;
       }
-      
-      // 创建结果节点，并自动连接到源节点
+
       const resultNodeIds: string[] = [];
       const newNodes: CanvasNode[] = [];
       const newConnections: Connection[] = [];
-      
-      // 计算结果节点的位置（源节点右侧，垂直排列）
-      const baseX = sourceNode.x + sourceNode.width + 150; // 距离源节点150px
-      const nodeHeight = 300; // 预估节点高度
-      const gap = 20; // 节点间距
+      const baseX = sourceNode.x + sourceNode.width + 150;
+      const nodeHeight = 300;
+      const gap = 20;
       const totalHeight = count * nodeHeight + (count - 1) * gap;
       const startY = sourceNode.y + (sourceNode.height / 2) - (totalHeight / 2);
-      
+
       for (let i = 0; i < count; i++) {
           const newId = uuid();
           resultNodeIds.push(newId);
-          
-          const resultNode: CanvasNode = {
+          newNodes.push({
               id: newId,
               type: 'image',
               title: `结果 ${i + 1}`,
@@ -1724,102 +1730,94 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               y: startY + i * (nodeHeight + gap),
               width: 280,
               height: nodeHeight,
-              status: 'running', // 创建时就设为running
-              data: {
-                  prompt: combinedPrompt, // 继承提示词
-                  settings: sourceNode.data?.settings // 继承设置
-              }
-          };
-          newNodes.push(resultNode);
-          
-          // 创建连接：源节点 -> 结果节点
-          newConnections.push({
-              id: uuid(),
-              fromNode: sourceNodeId,
-              toNode: newId
+              status: 'running',
+              data: { prompt: combinedPrompt, settings: sourceNode.data?.settings }
           });
+          newConnections.push({ id: uuid(), fromNode: sourceNodeId, toNode: newId });
       }
-      
-      // 添加节点和连接
       setNodes(prev => [...prev, ...newNodes]);
       setConnections(prev => [...prev, ...newConnections]);
-      
-      // 更新ref
       nodesRef.current = [...nodesRef.current, ...newNodes];
       connectionsRef.current = [...connectionsRef.current, ...newConnections];
-      
-      console.log(`[批量生成] 已创建 ${count} 个结果节点，开始并发执行`);
-      
-      // 并发执行所有结果节点的生成
+      setHasUnsavedChanges(true);
+
       const execPromises = resultNodeIds.map(async (nodeId, index) => {
           const abortController = new AbortController();
           abortControllersRef.current.set(nodeId, abortController);
           const signal = abortController.signal;
-          
           try {
               let result: string | null = null;
-              
-              // 🔧 修复：正确读取源节点的设置
               const aspectRatio = sourceNode.data?.settings?.aspectRatio || 'AUTO';
               const resolution = sourceNode.data?.settings?.resolution || '1K';
-              
               if (hasPrompt && !hasImage) {
-                  // 文生图
-                  const imgConfig = aspectRatio !== 'AUTO' 
-                      ? { aspectRatio, resolution }
-                      : { aspectRatio: '1:1', resolution };
-                  result = await generateCreativeImage(combinedPrompt, imgConfig, signal);
+                  result = await generateCreativeImage(combinedPrompt, aspectRatio !== 'AUTO' ? { aspectRatio, resolution } : { aspectRatio: '1:1', resolution }, signal);
               } else if (hasPrompt && hasImage) {
-                  // 图生图：正确传递设置参数
-                  let config: GenerationConfig | undefined = undefined;
-                  if (aspectRatio === 'AUTO') {
-                      // AUTO 模式：只传 resolution（如果不是默认值）
-                      if (resolution !== 'AUTO' && resolution !== '1K') {
-                          config = { resolution };
-                      }
-                  } else {
-                      // 用户指定了比例
-                      config = { aspectRatio, resolution: resolution !== 'AUTO' ? resolution : '1K' };
-                  }
-                  console.log('[批量生成] 图生图配置:', { aspectRatio, resolution, config });
+                  const config = aspectRatio === 'AUTO' ? (resolution !== 'AUTO' && resolution !== '1K' ? { resolution } : undefined) : { aspectRatio, resolution: resolution !== 'AUTO' ? resolution : '1K' };
                   result = await editCreativeImage(imageSource, combinedPrompt, config, signal);
-              } else if (!hasPrompt && hasImage) {
-                  // 传递图片（容器模式）
+              } else {
                   result = imageSource[0];
               }
-              
               if (!signal.aborted) {
-                  updateNode(nodeId, { 
-                      content: result || '', 
-                      status: result ? 'completed' : 'error' 
-                  });
-                  
-                  // 同步到桌面
-                  if (result && onImageGenerated) {
-                      onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
-                  }
-                  
-                  console.log(`[批量生成] 结果 ${index + 1} 完成`);
+                  updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
+                  if (result && onImageGenerated) onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
               }
           } catch (err) {
-              if (!signal.aborted) {
-                  updateNode(nodeId, { status: 'error' });
-                  console.error(`[批量生成] 结果 ${index + 1} 失败:`, err);
-              }
+              if (!signal.aborted) updateNode(nodeId, { status: 'error' });
           } finally {
               abortControllersRef.current.delete(nodeId);
           }
       });
-      
-      // 等待所有执行完成
       await Promise.all(execPromises);
-      
-      // 标记源节点为完成
+
+      const contents = resultNodeIds.map(id => nodesRef.current.find(n => n.id === id)?.content).filter((c): c is string => !!c && (isValidImage(c) || isValidVideo(c)));
+      setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+      setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+      nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+      connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
+
+      if (contents.length <= 1) {
+          const singleNodeId = uuid();
+          const singleNode: CanvasNode = {
+              id: singleNodeId,
+              type: 'image',
+              title: '结果',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 280,
+              height: nodeHeight,
+              status: contents.length > 0 ? 'completed' : 'error',
+              data: { prompt: combinedPrompt, settings: sourceNode.data?.settings }
+          };
+          const singleConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: singleNodeId };
+          setNodes(prev => [...prev, singleNode]);
+          setConnections(prev => [...prev, singleConn]);
+          nodesRef.current = [...nodesRef.current, singleNode];
+          connectionsRef.current = [...connectionsRef.current, singleConn];
+          if (contents[0] && onImageGenerated) onImageGenerated(contents[0], combinedPrompt, currentCanvasId || undefined, canvasName);
+      } else {
+          const previewNodeId = uuid();
+          const previewNode: CanvasNode = {
+              id: previewNodeId,
+              type: 'preview',
+              title: '预览',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 320,
+              height: 320,
+              status: 'completed',
+              data: { previewItems: contents, previewCoverIndex: 0, previewExpectedCount: count }
+          };
+          const previewConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: previewNodeId };
+          setNodes(prev => [...prev, previewNode]);
+          setConnections(prev => [...prev, previewConn]);
+          nodesRef.current = [...nodesRef.current, previewNode];
+          connectionsRef.current = [...connectionsRef.current, previewConn];
+          console.log(`[批量生成] 全部完成，已合并为预览节点共 ${contents.length} 张`);
+      }
       updateNode(sourceNodeId, { status: 'completed' });
-      
-      // 保存画布
       saveCurrentCanvas();
-      console.log(`[批量生成] 全部完成`);
   };
 
   // --- BP/Idea节点批量执行：自动创建图像节点并生成 ---
@@ -1906,22 +1904,18 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       
       console.log(`[BP/Idea批量] 最终提示词:`, finalPrompt.slice(0, 100));
       
-      // 创建结果节点
       const resultNodeIds: string[] = [];
       const newNodes: CanvasNode[] = [];
       const newConnections: Connection[] = [];
-      
       const baseX = sourceNode.x + sourceNode.width + 150;
       const nodeHeight = 300;
       const gap = 20;
       const totalHeight = count * nodeHeight + (count - 1) * gap;
       const startY = sourceNode.y + (sourceNode.height / 2) - (totalHeight / 2);
-      
       for (let i = 0; i < count; i++) {
           const newId = uuid();
           resultNodeIds.push(newId);
-          
-          const resultNode: CanvasNode = {
+          newNodes.push({
               id: newId,
               type: 'image',
               title: `结果 ${i + 1}`,
@@ -1931,124 +1925,116 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               width: 280,
               height: nodeHeight,
               status: 'running',
-              data: {
-                  prompt: finalPrompt,
-                  settings: settings
-              }
-          };
-          newNodes.push(resultNode);
-          
-          newConnections.push({
-              id: uuid(),
-              fromNode: sourceNodeId,
-              toNode: newId
+              data: { prompt: finalPrompt, settings: settings }
           });
+          newConnections.push({ id: uuid(), fromNode: sourceNodeId, toNode: newId });
       }
-      
-      // 添加节点和连接
       setNodes(prev => [...prev, ...newNodes]);
       setConnections(prev => [...prev, ...newConnections]);
       nodesRef.current = [...nodesRef.current, ...newNodes];
       connectionsRef.current = [...connectionsRef.current, ...newConnections];
-      
-      console.log(`[BP/Idea批量] 已创建 ${count} 个图像节点，开始并发执行`);
-      
-      // 并发执行所有结果节点的生成
+      setHasUnsavedChanges(true);
+
       const execPromises = resultNodeIds.map(async (nodeId, index) => {
           const abortController = new AbortController();
           abortControllersRef.current.set(nodeId, abortController);
           const signal = abortController.signal;
-          
           try {
               let result: string | null = null;
-              
               const aspectRatio = settings.aspectRatio || 'AUTO';
               const resolution = settings.resolution || '2K';
-              
-              // 🔧 修复：AUTO 比例在图生图时不应该转换为 1:1
               let config: GenerationConfig | undefined = undefined;
-              
               if (inputImages.length > 0) {
-                  // 图生图：AUTO 时只传 resolution，不传 aspectRatio，让 API 使用原图比例
-                  if (aspectRatio === 'AUTO') {
-                      config = { resolution };
-                  } else {
-                      config = { aspectRatio, resolution };
-                  }
+                  if (aspectRatio === 'AUTO') config = { resolution }; else config = { aspectRatio, resolution };
                   result = await editCreativeImage(inputImages, finalPrompt, config, signal);
               } else {
-                  // 文生图：AUTO 默认使用 1:1
-                  config = aspectRatio !== 'AUTO' 
-                      ? { aspectRatio, resolution }
-                      : { aspectRatio: '1:1', resolution };
+                  config = aspectRatio !== 'AUTO' ? { aspectRatio, resolution } : { aspectRatio: '1:1', resolution };
                   result = await generateCreativeImage(finalPrompt, config, signal);
               }
-              
               if (!signal.aborted) {
-                  updateNode(nodeId, { 
-                      content: result || '', 
-                      status: result ? 'completed' : 'error' 
-                  });
-                  
-                  if (result && onImageGenerated) {
-                      onImageGenerated(result, finalPrompt, currentCanvasId || undefined, canvasName);
-                  }
-                  
-                  console.log(`[BP/Idea批量] 结果 ${index + 1} 完成`);
+                  updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
+                  if (result && onImageGenerated) onImageGenerated(result, finalPrompt, currentCanvasId || undefined, canvasName);
               }
           } catch (err) {
-              if (!signal.aborted) {
-                  updateNode(nodeId, { status: 'error' });
-                  console.error(`[BP/Idea批量] 结果 ${index + 1} 失败:`, err);
-              }
+              if (!signal.aborted) updateNode(nodeId, { status: 'error' });
           } finally {
               abortControllersRef.current.delete(nodeId);
           }
       });
-      
       await Promise.all(execPromises);
-      
-      // 标记源节点为完成
+
+      const contents = resultNodeIds.map(id => nodesRef.current.find(n => n.id === id)?.content).filter((c): c is string => !!c && (isValidImage(c) || isValidVideo(c)));
+      setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+      setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+      nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+      connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
+
+      if (contents.length <= 1) {
+          const singleNodeId = uuid();
+          const singleNode: CanvasNode = {
+              id: singleNodeId,
+              type: 'image',
+              title: '结果',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 320,
+              height: 320,
+              status: contents.length > 0 ? 'completed' : 'error',
+              data: {}
+          };
+          const singleConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: singleNodeId };
+          setNodes(prev => [...prev, singleNode]);
+          setConnections(prev => [...prev, singleConn]);
+          nodesRef.current = [...nodesRef.current, singleNode];
+          connectionsRef.current = [...connectionsRef.current, singleConn];
+          if (contents[0] && onImageGenerated) onImageGenerated(contents[0], finalPrompt, currentCanvasId || undefined, canvasName);
+      } else {
+          const previewNodeId = uuid();
+          const previewNode: CanvasNode = {
+              id: previewNodeId,
+              type: 'preview',
+              title: '预览',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 320,
+              height: 320,
+              status: 'completed',
+              data: { previewItems: contents, previewCoverIndex: 0, previewExpectedCount: count }
+          };
+          const previewConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: previewNodeId };
+          setNodes(prev => [...prev, previewNode]);
+          setConnections(prev => [...prev, previewConn]);
+          nodesRef.current = [...nodesRef.current, previewNode];
+          connectionsRef.current = [...connectionsRef.current, previewConn];
+          console.log(`[BP/Idea批量] 全部完成，已合并为预览节点共 ${contents.length} 张`);
+      }
       updateNode(sourceNodeId, { status: 'completed' });
-      
       saveCurrentCanvas();
-      console.log(`[BP/Idea批量] 全部完成`);
   };
 
-  // 工具节点批量执行（remove-bg/upscale）：创建多个结果节点
+  // 工具节点批量执行（remove-bg/upscale）：先创建 N 个 image 节点，全部完成后合并为一个预览节点
   const handleToolBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
-      // 立即标记源节点为 running，防止重复点击
       updateNode(sourceNodeId, { status: 'running' });
-      
-      console.log(`[工具批量] 开始生成 ${count} 个结果节点`);
-      
-      // 获取源节点的位置和输入
       const inputs = resolveInputs(sourceNodeId);
       const inputImages = inputs.images;
-      
       if (inputImages.length === 0) {
-          console.warn('[工具批量] 无输入图片，无法执行');
           updateNode(sourceNodeId, { status: 'error' });
           return;
       }
-      
-      // 创建结果节点，并自动连接到源节点
+      const baseX = sourceNode.x + sourceNode.width + 150;
+      const nodeHeight = 300;
+      const gap = 20;
+      const totalHeight = count * nodeHeight + (count - 1) * gap;
+      const startY = sourceNode.y + (sourceNode.height / 2) - (totalHeight / 2);
       const resultNodeIds: string[] = [];
       const newNodes: CanvasNode[] = [];
       const newConnections: Connection[] = [];
-      
-      // 计算结果节点的位置（源节点右侧，垂直排列）
-      const baseX = sourceNode.x + sourceNode.width + 150; // 距离源节点150px
-      const nodeHeight = 300; // 预估节点高度
-      const gap = 20; // 节点间距
-      const totalHeight = count * nodeHeight + (count - 1) * gap;
-      const startY = sourceNode.y + (sourceNode.height / 2) - (totalHeight / 2);
-      
       for (let i = 0; i < count; i++) {
           const newId = uuid();
           resultNodeIds.push(newId);
-          
-          const resultNode: CanvasNode = {
+          newNodes.push({
               id: newId,
               type: 'image',
               content: '',
@@ -2056,127 +2042,117 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               y: startY + i * (nodeHeight + gap),
               width: 300,
               height: 300,
-              status: 'running', // 创建时就设为running
+              status: 'running',
               data: {}
-          };
-          newNodes.push(resultNode);
-          
-          // 创建连接：源节点 -> 结果节点
-          newConnections.push({
-              id: uuid(),
-              fromNode: sourceNodeId,
-              toNode: newId
           });
+          newConnections.push({ id: uuid(), fromNode: sourceNodeId, toNode: newId });
       }
-      
-      // 添加节点和连接
       setNodes(prev => [...prev, ...newNodes]);
       setConnections(prev => [...prev, ...newConnections]);
-      
-      // 更新ref
       nodesRef.current = [...nodesRef.current, ...newNodes];
       connectionsRef.current = [...connectionsRef.current, ...newConnections];
-      
-      console.log(`[工具批量] 已创建 ${count} 个结果节点，开始并发执行`);
-      
-      // 并发执行所有结果节点的生成
-      const execPromises = resultNodeIds.map(async (nodeId, index) => {
+      setHasUnsavedChanges(true);
+
+      const execPromises = resultNodeIds.map(async (nodeId) => {
           const abortController = new AbortController();
           abortControllersRef.current.set(nodeId, abortController);
           const signal = abortController.signal;
-          
           try {
               let result: string | null = null;
-              
               if (sourceNode.type === 'remove-bg') {
-                  const prompt = "Remove the background, keep subject on transparent or white background";
-                  result = await editCreativeImage([inputImages[0]], prompt, undefined, signal);
+                  result = await editCreativeImage([inputImages[0]], "Remove the background, keep subject on transparent or white background", undefined, signal);
               } else if (sourceNode.type === 'upscale') {
-                  const prompt = "Upscale this image to high resolution while preserving all original details, colors, and composition. Enhance clarity and sharpness without altering the content.";
                   const upscaleResolution = sourceNode.data?.settings?.resolution || '2K';
-                  const upscaleConfig: GenerationConfig = {
-                      resolution: upscaleResolution as '1K' | '2K' | '4K'
-                  };
-                  result = await editCreativeImage([inputImages[0]], prompt, upscaleConfig, signal);
+                  result = await editCreativeImage([inputImages[0]], "Upscale this image to high resolution while preserving all original details, colors, and composition. Enhance clarity and sharpness without altering the content.", { resolution: upscaleResolution as '1K' | '2K' | '4K' }, signal);
               }
-              
-              if (!signal.aborted) {
-                  if (result) {
-                      // 提取图片元数据
-                      const metadata = await extractImageMetadata(result);
-                      
-                      updateNode(nodeId, { 
-                          content: result, 
-                          status: 'completed',
-                          data: { imageMetadata: metadata }
-                      });
-                      
-                      // 🔧 同步到桌面
-                      if (onImageGenerated) {
-                          const toolPrompt = sourceNode.type === 'remove-bg' ? '抠图结果' : '放大结果';
-                          onImageGenerated(result, toolPrompt, currentCanvasId || undefined, canvasName);
-                      }
-                  } else {
-                      updateNode(nodeId, { status: 'error' });
-                  }
+              if (!signal.aborted && result) {
+                  const metadata = await extractImageMetadata(result);
+                  updateNode(nodeId, { content: result, status: 'completed', data: { imageMetadata: metadata } });
+                  if (onImageGenerated) onImageGenerated(result, sourceNode.type === 'remove-bg' ? '抠图结果' : '放大结果', currentCanvasId || undefined, canvasName);
+              } else if (!signal.aborted) {
+                  updateNode(nodeId, { status: 'error' });
               }
           } catch (err) {
-              if (!signal.aborted) {
-                  updateNode(nodeId, { status: 'error' });
-                  console.error(`[工具批量] 结果 ${index + 1} 失败:`, err);
-              }
+              if (!signal.aborted) updateNode(nodeId, { status: 'error' });
           } finally {
               abortControllersRef.current.delete(nodeId);
           }
       });
-      
-      // 等待所有执行完成
       await Promise.all(execPromises);
-      
-      // 标记源节点为完成
+
+      const contents = resultNodeIds.map(id => nodesRef.current.find(n => n.id === id)?.content).filter((c): c is string => !!c && (isValidImage(c) || isValidVideo(c)));
+      setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+      setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+      nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+      connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
+
+      if (contents.length <= 1) {
+          const singleNodeId = uuid();
+          const singleNode: CanvasNode = {
+              id: singleNodeId,
+              type: 'image',
+              title: '结果',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 300,
+              height: 300,
+              status: contents.length > 0 ? 'completed' : 'error',
+              data: {}
+          };
+          const singleConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: singleNodeId };
+          setNodes(prev => [...prev, singleNode]);
+          setConnections(prev => [...prev, singleConn]);
+          nodesRef.current = [...nodesRef.current, singleNode];
+          connectionsRef.current = [...connectionsRef.current, singleConn];
+          if (contents[0] && onImageGenerated) onImageGenerated(contents[0], '工具输出', currentCanvasId || undefined, canvasName);
+      } else {
+          const previewNodeId = uuid();
+          const previewNode: CanvasNode = {
+              id: previewNodeId,
+              type: 'preview',
+              title: '预览',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 320,
+              height: 320,
+              status: 'completed',
+              data: { previewItems: contents, previewCoverIndex: 0, previewExpectedCount: count }
+          };
+          const previewConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: previewNodeId };
+          setNodes(prev => [...prev, previewNode]);
+          setConnections(prev => [...prev, previewConn]);
+          nodesRef.current = [...nodesRef.current, previewNode];
+          connectionsRef.current = [...connectionsRef.current, previewConn];
+          console.log(`[工具批量] 全部完成，已合并为预览节点共 ${contents.length} 张`);
+      }
       updateNode(sourceNodeId, { status: 'completed' });
-      
-      // 🔧 保存画布
       saveCurrentCanvas();
-      
-      console.log(`[工具批量] 全部完成`);
   };
 
-  // 视频节点批量执行：创建多个 video-output 节点
+  // 视频节点批量执行：先创建 N 个 video-output 节点，全部完成后合并为一个预览节点
   const handleVideoBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
-      console.log(`[视频批量] 开始生成 ${count} 个视频输出节点`);
-      
-      // 获取输入
       const inputs = resolveInputs(sourceNodeId);
-      const nodePrompt = sourceNode.data?.prompt || '';
-      const inputTexts = inputs.texts.join('\n');
-      // 🔧 上游输入优先替代节点自身prompt
-      const combinedPrompt = inputTexts || nodePrompt;
+      const combinedPrompt = inputs.texts.join('\n') || sourceNode.data?.prompt || '';
       const inputImages = inputs.images;
-      
       if (!combinedPrompt) {
-          console.error('[视频批量] 无提示词');
           updateNode(sourceNodeId, { status: 'error' });
           return;
       }
-      
-      // 创建结果节点（video-output 类型）
-      const resultNodeIds: string[] = [];
-      const newNodes: CanvasNode[] = [];
-      const newConnections: Connection[] = [];
-      
       const baseX = sourceNode.x + sourceNode.width + 150;
       const nodeHeight = 300;
       const nodeWidth = 400;
       const gap = 20;
       const totalHeight = count * nodeHeight + (count - 1) * gap;
       const startY = sourceNode.y + (sourceNode.height / 2) - (totalHeight / 2);
-      
+      const resultNodeIds: string[] = [];
+      const newNodes: CanvasNode[] = [];
+      const newConnections: Connection[] = [];
       for (let i = 0; i < count; i++) {
           const newId = uuid();
           resultNodeIds.push(newId);
-          
-          const resultNode: CanvasNode = {
+          newNodes.push({
               id: newId,
               type: 'video-output',
               title: `视频 ${i + 1}`,
@@ -2187,47 +2163,28 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               height: nodeHeight,
               status: 'running',
               data: {}
-          };
-          newNodes.push(resultNode);
-          
-          newConnections.push({
-              id: uuid(),
-              fromNode: sourceNodeId,
-              toNode: newId
           });
+          newConnections.push({ id: uuid(), fromNode: sourceNodeId, toNode: newId });
       }
-      
-      // 添加节点和连接
       setNodes(prev => [...prev, ...newNodes]);
       setConnections(prev => [...prev, ...newConnections]);
       nodesRef.current = [...nodesRef.current, ...newNodes];
       connectionsRef.current = [...connectionsRef.current, ...newConnections];
       setHasUnsavedChanges(true);
-      
-      console.log(`[视频批量] 已创建 ${count} 个视频输出节点`);
-      
-      // 🔧 配置节点立即完成，不等待视频生成
-      // 任务状态由输出节点自己管理
       updateNode(sourceNodeId, { status: 'completed' });
       saveCurrentCanvas();
-      
-      // 获取视频设置
+
       const videoService = sourceNode.data?.videoService || 'sora';
-      
-      // 🔧 后台异步执行所有结果节点的生成（不阻塞配置节点）
-      resultNodeIds.forEach(async (outputNodeId, index) => {
+      const runOne = async (outputNodeId: string, index: number) => {
           const abortController = new AbortController();
           abortControllersRef.current.set(outputNodeId, abortController);
           const signal = abortController.signal;
-          
           try {
-              // 处理图片输入（如果有）
               let processedImages: string[] = [];
               if (inputImages.length > 0) {
                   for (const imgSrc of inputImages) {
-                      if (imgSrc.startsWith('data:')) {
-                          processedImages.push(imgSrc);
-                      } else if (imgSrc.startsWith('/files/')) {
+                      if (imgSrc.startsWith('data:')) processedImages.push(imgSrc);
+                      else if (imgSrc.startsWith('/files/')) {
                           const fullUrl = `${window.location.origin}${imgSrc}`;
                           const resp = await fetch(fullUrl);
                           const blob = await resp.blob();
@@ -2240,26 +2197,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       }
                   }
               }
-              
+              let videoUrl: string | null = null;
               if (videoService === 'veo') {
-                  // ===== Veo 视频生成 =====
                   const { createVeoTask, waitForVeoCompletion } = await import('../../services/veoService');
-                  
                   const veoMode = sourceNode.data?.veoMode || 'text2video';
                   const veoModel = sourceNode.data?.veoModel || 'veo3.1-fast';
                   const veoAspectRatio = sourceNode.data?.veoAspectRatio || '16:9';
                   const veoEnhancePrompt = sourceNode.data?.veoEnhancePrompt ?? false;
                   const veoEnableUpsample = sourceNode.data?.veoEnableUpsample ?? false;
-                  
-                  console.log(`[视频批量] Veo 开始生成 ${index + 1}:`, {
-                      mode: veoMode,
-                      model: veoModel,
-                      aspectRatio: veoAspectRatio,
-                      enhancePrompt: veoEnhancePrompt,
-                      enableUpsample: veoEnableUpsample,
-                      prompt: combinedPrompt.slice(0, 100)
-                  });
-                  
                   const taskId = await createVeoTask({
                       prompt: combinedPrompt,
                       model: veoModel as any,
@@ -2268,80 +2213,88 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       enhancePrompt: veoEnhancePrompt,
                       enableUpsample: veoEnableUpsample
                   });
-                  
-                  console.log(`[视频批量] Veo 任务已创建 ${index + 1}, taskId:`, taskId);
-                  
-                  updateNode(outputNodeId, { data: { videoTaskId: taskId } });
-                  
-                  const videoUrl = await waitForVeoCompletion(taskId, (progress, status) => {
+                  videoUrl = await waitForVeoCompletion(taskId, (progress, status) => {
                       updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                   });
-                  
-                  if (signal.aborted) return;
-                  
-                  if (videoUrl) {
-                      await downloadAndSaveVideo(videoUrl, outputNodeId, signal);
-                  } else {
-                      throw new Error('未返回视频URL');
-                  }
               } else {
-                  // ===== Sora 视频生成 =====
                   const { createVideoTask, waitForVideoCompletion } = await import('../../services/soraService');
-                  
                   const videoModel = sourceNode.data?.videoModel || 'sora-2';
                   const videoSize = sourceNode.data?.videoSize || '1280x720';
                   const aspectRatio = videoSize === '720x1280' ? '9:16' : '16:9';
                   const duration = sourceNode.data?.videoSeconds || '10';
                   const hd = videoModel === 'sora-2-pro';
-                  
-                  console.log(`[视频批量] Sora 开始生成 ${index + 1}:`, {
-                      model: videoModel,
-                      aspectRatio,
-                      duration,
-                      prompt: combinedPrompt.slice(0, 100)
-                  });
-                  
                   const taskId = await createVideoTask({
                       prompt: combinedPrompt,
                       model: videoModel as any,
                       images: processedImages.length > 0 ? processedImages : undefined,
                       aspectRatio: aspectRatio as any,
-                      hd: hd,
+                      hd,
                       duration: duration as any
                   });
-                  
-                  console.log(`[视频批量] Sora 任务已创建 ${index + 1}, taskId:`, taskId);
-                  
-                  updateNode(outputNodeId, { data: { videoTaskId: taskId } });
-                  
-                  const videoUrl = await waitForVideoCompletion(taskId, (progress, status) => {
+                  videoUrl = await waitForVideoCompletion(taskId, (progress, status) => {
                       updateNode(outputNodeId, { data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoProgress: progress, videoTaskStatus: status } });
                   });
-                  
-                  if (signal.aborted) return;
-                  
-                  if (videoUrl) {
-                      await downloadAndSaveVideo(videoUrl, outputNodeId, signal);
-                  } else {
-                      throw new Error('未返回视频URL');
-                  }
               }
-              
-              console.log(`[视频批量] 结果 ${index + 1} 完成`);
+              if (signal.aborted) return;
+              if (videoUrl) await downloadAndSaveVideo(videoUrl, outputNodeId, signal);
+              else throw new Error('未返回视频URL');
           } catch (err) {
-              console.error(`[视频批量] 结果 ${index + 1} 失败:`, err);
-              if (!signal.aborted) {
-                  updateNode(outputNodeId, { 
-                      status: 'error',
-                      data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoFailReason: err instanceof Error ? err.message : String(err) }
-                  });
-              }
+              if (!signal.aborted) updateNode(outputNodeId, { status: 'error', data: { ...nodesRef.current.find(n => n.id === outputNodeId)?.data, videoFailReason: err instanceof Error ? err.message : String(err) } });
           } finally {
               abortControllersRef.current.delete(outputNodeId);
           }
-      });
-      
-      console.log(`[视频批量] 任务已后台异步执行`);
+      };
+
+      await Promise.all(resultNodeIds.map((id, i) => runOne(id, i)));
+
+      const contents = resultNodeIds.map(id => nodesRef.current.find(n => n.id === id)?.content).filter((c): c is string => !!c && (isValidImage(c) || isValidVideo(c)));
+      setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+      setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+      nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+      connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
+
+      if (contents.length <= 1) {
+          const singleNodeId = uuid();
+          const singleNode: CanvasNode = {
+              id: singleNodeId,
+              type: 'video-output',
+              title: '视频',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 400,
+              height: 225,
+              status: contents.length > 0 ? 'completed' : 'error',
+              data: {}
+          };
+          const singleConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: singleNodeId };
+          setNodes(prev => [...prev, singleNode]);
+          setConnections(prev => [...prev, singleConn]);
+          nodesRef.current = [...nodesRef.current, singleNode];
+          connectionsRef.current = [...connectionsRef.current, singleConn];
+          if (contents[0] && onImageGenerated) onImageGenerated(contents[0], '视频输出', currentCanvasId || undefined, canvasName, true);
+      } else {
+          const previewNodeId = uuid();
+          const previewNode: CanvasNode = {
+              id: previewNodeId,
+              type: 'preview',
+              title: '预览',
+              content: contents[0] || '',
+              x: baseX,
+              y: sourceNode.y,
+              width: 320,
+              height: 320,
+              status: 'completed',
+              data: { previewItems: contents, previewCoverIndex: 0, previewExpectedCount: count, previewItemTypes: contents.map(() => 'video' as const) }
+          };
+          const previewConn: Connection = { id: uuid(), fromNode: sourceNodeId, toNode: previewNodeId };
+          setNodes(prev => [...prev, previewNode]);
+          setConnections(prev => [...prev, previewConn]);
+          nodesRef.current = [...nodesRef.current, previewNode];
+          connectionsRef.current = [...connectionsRef.current, previewConn];
+          console.log(`[视频批量] 全部完成，已合并为预览节点共 ${contents.length} 个`);
+      }
+      saveCurrentCanvas();
   };
 
   const handleExecuteNode = async (nodeId: string, batchCount: number = 1) => {
@@ -3616,36 +3569,36 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                                   status: 'completed',
                                   data: { ...node.data, outputImages: imageUrls, outputVideos: videoUrls, outputPromptId: promptId, error: undefined }
                               });
-                              // 参考 MEDIA：为每个输出创建 Image 或 Video 节点并连线
-                              // 有视频时不同步预览图到桌面、不创建图片节点（ComfyUI 视频工作流返回的预览图不需要）
+                              // 先创建 N 个 image/video-output 节点，再合并为一个预览节点
                               const comfyNode = nodesRef.current.find(n => n.id === nodeId)!;
                               const startX = comfyNode.x + comfyNode.width + 80;
+                              const outIds: string[] = [];
                               let offsetY = 0;
-                              const newNodes: CanvasNode[] = [];
-                              const newConns: Connection[] = [];
-                              const onlyVideos = videoUrls.length > 0;
-                              if (!onlyVideos) {
-                                  for (const url of imageUrls) {
-                                      const outId = uuid();
-                                      newNodes.push({
-                                          id: outId,
-                                          type: 'image',
-                                          content: url,
-                                          x: startX,
-                                          y: comfyNode.y + offsetY,
-                                          width: 300,
-                                          height: 300,
-                                          data: {},
-                                          status: 'completed'
-                                      });
-                                      newConns.push({ id: uuid(), fromNode: nodeId, toNode: outId });
-                                      offsetY += 320;
-                                      if (onImageGenerated) onImageGenerated(url, 'ComfyUI 输出', currentCanvasId || undefined, canvasName);
-                                  }
+                              for (const url of imageUrls) {
+                                  const outId = uuid();
+                                  outIds.push(outId);
+                                  const imgNode: CanvasNode = {
+                                      id: outId,
+                                      type: 'image',
+                                      content: url,
+                                      x: startX,
+                                      y: comfyNode.y + offsetY,
+                                      width: 300,
+                                      height: 300,
+                                      data: {},
+                                      status: 'completed'
+                                  };
+                                  nodesRef.current = [...nodesRef.current, imgNode];
+                                  connectionsRef.current = [...connectionsRef.current, { id: uuid(), fromNode: nodeId, toNode: outId }];
+                                  setNodes(prev => [...prev, imgNode]);
+                                  setConnections(prev => [...prev, { id: uuid(), fromNode: nodeId, toNode: outId }]);
+                                  offsetY += 320;
+                                  if (onImageGenerated) onImageGenerated(url, 'ComfyUI 输出', currentCanvasId || undefined, canvasName);
                               }
                               for (const url of videoUrls) {
                                   const outId = uuid();
-                                  newNodes.push({
+                                  outIds.push(outId);
+                                  const vidNode: CanvasNode = {
                                       id: outId,
                                       type: 'video-output',
                                       content: url,
@@ -3655,16 +3608,60 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                                       height: 225,
                                       data: {},
                                       status: 'completed'
-                                  });
-                                  newConns.push({ id: uuid(), fromNode: nodeId, toNode: outId });
+                                  };
+                                  nodesRef.current = [...nodesRef.current, vidNode];
+                                  connectionsRef.current = [...connectionsRef.current, { id: uuid(), fromNode: nodeId, toNode: outId }];
+                                  setNodes(prev => [...prev, vidNode]);
+                                  setConnections(prev => [...prev, { id: uuid(), fromNode: nodeId, toNode: outId }]);
                                   offsetY += 245;
                                   if (onImageGenerated) onImageGenerated(url, 'ComfyUI 视频输出', currentCanvasId || undefined, canvasName, true);
                               }
-                              if (newNodes.length > 0) {
-                                  setNodes(prev => [...prev, ...newNodes]);
-                                  setConnections(prev => [...prev, ...newConns]);
-                                  nodesRef.current = [...nodesRef.current, ...newNodes];
-                                  connectionsRef.current = [...connectionsRef.current, ...newConns];
+                              const previewItems = [...imageUrls, ...videoUrls];
+                              const previewItemTypes: ('image' | 'video')[] = [...imageUrls.map(() => 'image' as const), ...videoUrls.map(() => 'video' as const)];
+                              setNodes(prev => prev.filter(n => !outIds.includes(n.id)));
+                              setConnections(prev => prev.filter(c => !outIds.includes(c.toNode)));
+                              nodesRef.current = nodesRef.current.filter(n => !outIds.includes(n.id));
+                              connectionsRef.current = connectionsRef.current.filter(c => !outIds.includes(c.toNode));
+                              if (previewItems.length <= 1) {
+                                  const url = previewItems[0];
+                                  const isVideo = videoUrls.length > 0;
+                                  const outId = uuid();
+                                  const outNode: CanvasNode = {
+                                      id: outId,
+                                      type: isVideo ? 'video-output' : 'image',
+                                      content: url || '',
+                                      x: startX,
+                                      y: comfyNode.y,
+                                      width: isVideo ? 400 : 300,
+                                      height: isVideo ? 225 : 300,
+                                      data: {},
+                                      status: 'completed'
+                                  };
+                                  const newConn: Connection = { id: uuid(), fromNode: nodeId, toNode: outId };
+                                  setNodes(prev => [...prev, outNode]);
+                                  setConnections(prev => [...prev, newConn]);
+                                  nodesRef.current = [...nodesRef.current, outNode];
+                                  connectionsRef.current = [...connectionsRef.current, newConn];
+                                  if (url && onImageGenerated) onImageGenerated(url, isVideo ? 'ComfyUI 视频输出' : 'ComfyUI 输出', currentCanvasId || undefined, canvasName, isVideo);
+                              } else {
+                                  const previewNodeId = uuid();
+                                  const previewNode: CanvasNode = {
+                                      id: previewNodeId,
+                                      type: 'preview',
+                                      title: '预览',
+                                      content: previewItems[0] || '',
+                                      x: startX,
+                                      y: comfyNode.y,
+                                      width: 320,
+                                      height: 320,
+                                      status: 'completed',
+                                      data: { previewItems, previewCoverIndex: 0, previewItemTypes, previewExpectedCount: previewItems.length }
+                                  };
+                                  const newConn: Connection = { id: uuid(), fromNode: nodeId, toNode: previewNodeId };
+                                  setNodes(prev => [...prev, previewNode]);
+                                  setConnections(prev => [...prev, newConn]);
+                                  nodesRef.current = [...nodesRef.current, previewNode];
+                                  connectionsRef.current = [...connectionsRef.current, newConn];
                               }
                               saveCurrentCanvas();
                               return;
@@ -4029,66 +4026,74 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   
                   console.log('[RH-Main] nodeInfoList:', nodeInfoList);
                   
-                  // 找到最后一个参数节点（用于定位输出节点）
-                  let lastParamNode = paramNodes[paramNodes.length - 1];
+                  const lastParamNode = paramNodes[paramNodes.length - 1];
+                  const fromNodeId = lastParamNode ? lastParamNode.id : nodeId;
                   const outputBaseY = lastParamNode ? (lastParamNode.y + lastParamNode.height + 50) : (node.y + node.height + 50);
-                  
-                  // 根据批次数多次执行任务
+                  const usePreview = batchCount > 1;
+                  const resultNodeIds: string[] = [];
+
+                  if (usePreview) {
+                      for (let i = 0; i < batchCount; i++) {
+                          const outId = uuid();
+                          resultNodeIds.push(outId);
+                          const outputNode: CanvasNode = {
+                              id: outId,
+                              type: 'image',
+                              content: '',
+                              x: node.x,
+                              y: outputBaseY + i * 420,
+                              width: 300,
+                              height: 300,
+                              data: {},
+                              status: 'running'
+                          };
+                          const newConnection = { id: uuid(), fromNode: fromNodeId, toNode: outId };
+                          nodesRef.current = [...nodesRef.current, outputNode];
+                          connectionsRef.current = [...connectionsRef.current, newConnection];
+                          setNodes(prev => [...prev, outputNode]);
+                          setConnections(prev => [...prev, newConnection]);
+                      }
+                      setHasUnsavedChanges(true);
+                  }
+
                   for (let batchIdx = 0; batchIdx < batchCount; batchIdx++) {
                       if (signal.aborted) return;
-                      
                       console.log(`[RH-Main] 执行第 ${batchIdx + 1}/${batchCount} 次任务`);
-                      
-                      // 为每个任务创建输出节点
-                      const outputNodeId = uuid();
-                      const outputNode: CanvasNode = {
-                          id: outputNodeId,
-                          type: 'image',
-                          content: '',
-                          x: node.x,
-                          y: outputBaseY + (batchIdx * 420),
-                          width: 300,
-                          height: 300,
-                          data: {},
-                          status: 'running'
-                      };
-                      
-                      // 从最后一个参数节点连线到输出节点
-                      const fromNodeId = lastParamNode ? lastParamNode.id : nodeId;
-                      const newConnection = {
-                          id: uuid(),
-                          fromNode: fromNodeId,
-                          toNode: outputNodeId
-                      };
-                      
-                      nodesRef.current = [...nodesRef.current, outputNode];
-                      connectionsRef.current = [...connectionsRef.current, newConnection];
-                      setNodes(prev => [...prev, outputNode]);
-                      setConnections(prev => [...prev, newConnection]);
-                      setHasUnsavedChanges(true);
-                      console.log(`[RH-Main] 已创建输出节点 ${batchIdx + 1}:`, outputNodeId.slice(0, 8));
-                      
-                      // 调用 API
+                      const outputNodeId = usePreview ? resultNodeIds[batchIdx]! : uuid();
+                      if (!usePreview) {
+                          const outputNode: CanvasNode = {
+                              id: outputNodeId,
+                              type: 'image',
+                              content: '',
+                              x: node.x,
+                              y: outputBaseY,
+                              width: 300,
+                              height: 300,
+                              data: {},
+                              status: 'running'
+                          };
+                          const newConnection = { id: uuid(), fromNode: fromNodeId, toNode: outputNodeId };
+                          nodesRef.current = [...nodesRef.current, outputNode];
+                          connectionsRef.current = [...connectionsRef.current, newConnection];
+                          setNodes(prev => [...prev, outputNode]);
+                          setConnections(prev => [...prev, newConnection]);
+                          setHasUnsavedChanges(true);
+                      }
+
                       const result = await runAIApp(webappId, nodeInfoList);
-                      
                       if (signal.aborted) return;
-                      
+
                       if (result.success && result.data?.outputs?.length) {
                           const output = result.data.outputs[0];
                           const outputUrl = output.fileUrl;
                           const outputType = output.fileType === 'video' ? 'video' : 'image';
-                          
                           console.log(`[RH-Main] 任务 ${batchIdx + 1} 执行成功:`, { outputUrl, outputType });
-                          
-                          // 更新输出节点
                           const metadata = await extractImageMetadata(outputUrl);
                           updateNode(outputNodeId, {
                               content: outputUrl,
                               data: { imageMetadata: metadata },
                               status: 'completed'
                           });
-                          
-                          // 同步到桌面
                           if (outputType === 'image' && onImageGenerated) {
                               onImageGenerated(outputUrl, `RunningHub: ${appName}`, currentCanvasId || undefined, canvasName);
                           }
@@ -4098,8 +4103,56 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                           updateNode(outputNodeId, { status: 'error' });
                       }
                   }
-                  
-                  // 所有任务完成后更新主节点状态
+
+                  if (usePreview && resultNodeIds.length > 0) {
+                      const contents = resultNodeIds.map(id => nodesRef.current.find(n => n.id === id)?.content).filter((c): c is string => !!c && (isValidImage(c) || isValidVideo(c)));
+                      setNodes(prev => prev.filter(n => !resultNodeIds.includes(n.id)));
+                      setConnections(prev => prev.filter(c => !resultNodeIds.includes(c.toNode)));
+                      nodesRef.current = nodesRef.current.filter(n => !resultNodeIds.includes(n.id));
+                      connectionsRef.current = connectionsRef.current.filter(c => !resultNodeIds.includes(c.toNode));
+                      if (contents.length <= 1) {
+                          const singleId = uuid();
+                          const isVideo = contents[0] ? isValidVideo(contents[0]) : false;
+                          const singleNode: CanvasNode = {
+                              id: singleId,
+                              type: isVideo ? 'video-output' : 'image',
+                              title: isVideo ? '视频' : '结果',
+                              content: contents[0] || '',
+                              x: node.x,
+                              y: outputBaseY,
+                              width: isVideo ? 400 : 320,
+                              height: isVideo ? 225 : 320,
+                              status: contents.length > 0 ? 'completed' : 'error',
+                              data: {}
+                          };
+                          const singleConn = { id: uuid(), fromNode: fromNodeId, toNode: singleId };
+                          setNodes(prev => [...prev, singleNode]);
+                          setConnections(prev => [...prev, singleConn]);
+                          nodesRef.current = [...nodesRef.current, singleNode];
+                          connectionsRef.current = [...connectionsRef.current, singleConn];
+                          if (contents[0] && onImageGenerated) onImageGenerated(contents[0], `RunningHub: ${appName}`, currentCanvasId || undefined, canvasName, isVideo);
+                      } else {
+                          const previewNodeId = uuid();
+                          const previewNode: CanvasNode = {
+                              id: previewNodeId,
+                              type: 'preview',
+                              title: '预览',
+                              content: contents[0] || '',
+                              x: node.x,
+                              y: outputBaseY,
+                              width: 320,
+                              height: 320,
+                              status: contents.length > 0 ? 'completed' : 'error',
+                              data: { previewItems: contents, previewCoverIndex: 0, previewExpectedCount: batchCount }
+                          };
+                          const previewConn = { id: uuid(), fromNode: fromNodeId, toNode: previewNodeId };
+                          setNodes(prev => [...prev, previewNode]);
+                          setConnections(prev => [...prev, previewConn]);
+                          nodesRef.current = [...nodesRef.current, previewNode];
+                          connectionsRef.current = [...connectionsRef.current, previewConn];
+                      }
+                  }
+
                   updateNode(nodeId, { status: 'completed' });
                   saveCurrentCanvas();
                   
@@ -4877,8 +4930,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           onManualSave={handleManualSave}
           autoSaveEnabled={autoSaveEnabled}
           hasUnsavedChanges={hasUnsavedChanges}
-          canvasTheme={canvasTheme}
-          onToggleTheme={() => setCanvasTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+          canvasTheme={themeName}
+          onToggleTheme={() => setTheme(themeName === 'light' ? 'dark' : 'light')}
           onApplyCreativeIdea={(idea) => {
             // 应用创意库到画布
             const baseX = -canvasOffset.x / scale + 200;

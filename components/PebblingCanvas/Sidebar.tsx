@@ -100,25 +100,31 @@ const Sidebar: React.FC<SidebarProps> = ({
     <>
         <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-4 pointer-events-none">
         
-        {/* 画布管理按钮 */}
+        {/* 画布管理按钮 - 随全局主题变色 */}
         <button 
             onClick={(e) => { e.stopPropagation(); setShowCanvasPanel(!showCanvasPanel); }}
             className={`w-12 h-12 rounded-2xl flex items-center justify-center border shadow-xl backdrop-blur-sm pointer-events-auto select-none transition-all active:scale-95 ${
-              showCanvasPanel ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300' : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+              showCanvasPanel
+                ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-600 dark:text-emerald-300'
+                : isLight
+                  ? 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200'
+                  : 'bg-white/5 border-white/10 text-zinc-300 hover:bg-white/10 hover:text-white'
             }`}
             title={isCanvasLoading ? '加载中...' : canvasName}
         >
             <Icons.Layout className="w-5 h-5" />
         </button>
 
-        {/* 手动保存按钮 */}
+        {/* 手动保存按钮 - 随全局主题变色 */}
         {onManualSave && (
             <button 
                 onClick={(e) => { e.stopPropagation(); onManualSave(); }}
                 className={`w-12 h-12 rounded-2xl flex items-center justify-center border shadow-xl backdrop-blur-sm pointer-events-auto select-none transition-all active:scale-95 relative ${
                     hasUnsavedChanges
-                        ? 'bg-orange-500/20 border-orange-500/30 text-orange-300 animate-pulse'
-                        : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                        ? 'bg-orange-500/20 border-orange-500/30 text-orange-600 dark:text-orange-300 animate-pulse'
+                        : isLight
+                          ? 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200'
+                          : 'bg-white/5 border-white/10 text-zinc-300 hover:bg-white/10 hover:text-white'
                 }`}
                 title={hasUnsavedChanges ? "有未保存的修改，点击保存" : "保存画布"}
             >
@@ -126,21 +132,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                 </svg>
                 {hasUnsavedChanges && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full border-2 border-[#1c1c1e]" />
+                    <div className={`absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full border-2 ${isLight ? 'border-white' : 'border-[#1c1c1e]'}`} />
                 )}
             </button>
         )}
 
-        {/* 画布主题切换按钮 */}
+        {/* 画布主题切换按钮（与全局日夜同步） */}
         {onToggleTheme && (
             <button 
                 onClick={(e) => { e.stopPropagation(); onToggleTheme(); }}
                 className={`w-12 h-12 rounded-2xl flex items-center justify-center border shadow-xl backdrop-blur-sm pointer-events-auto select-none transition-all active:scale-95 ${
                     canvasTheme === 'light'
                         ? 'bg-amber-100 border-amber-300 text-amber-600'
-                        : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                        : isLight
+                          ? 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200'
+                          : 'bg-white/5 border-white/10 text-zinc-300 hover:bg-white/10 hover:text-white'
                 }`}
-                title={canvasTheme === 'light' ? '切换到深色画布' : '切换到浅色画布'}
+                title={canvasTheme === 'light' ? '切换到深色' : '切换到浅色'}
             >
                 {canvasTheme === 'light' ? (
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,22 +239,24 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
         </div>
 
-        {/* 画布管理面板 */}
+        {/* 画布管理面板 - 随全局主题变色 */}
         {showCanvasPanel && (
             <div 
-                className="fixed left-24 top-6 z-30 w-72 bg-[#1c1c1e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-left-4 fade-in duration-300 pointer-events-auto"
+                className={`fixed left-24 top-6 z-30 w-72 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-left-4 fade-in duration-300 pointer-events-auto ${
+                    isLight ? 'bg-white/95 border-gray-200' : 'bg-[#1c1c1e]/95 border-white/10'
+                }`}
                 onMouseDown={(e) => e.stopPropagation()}
             >
                 {/* 头部 */}
-                <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+                <div className={`px-4 py-3 border-b flex items-center justify-between ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
                     <div className="flex items-center gap-2">
-                        <Icons.Layout size={14} className="text-emerald-400"/>
-                        <span className="text-sm font-bold text-white">画布管理</span>
+                        <Icons.Layout size={14} className="text-emerald-500"/>
+                        <span className={`text-sm font-bold ${isLight ? 'text-gray-900' : 'text-white'}`}>画布管理</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <button 
                             onClick={(e) => { e.stopPropagation(); onCreateCanvas(); }}
-                            className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors"
+                            className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/30 transition-colors"
                             title="新增画布"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,7 +265,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         </button>
                         <button 
                             onClick={() => setShowCanvasPanel(false)} 
-                            className="text-zinc-500 hover:text-white"
+                            className={isLight ? 'text-gray-500 hover:text-gray-900' : 'text-zinc-500 hover:text-white'}
                         >
                             <Icons.Close size={14}/>
                         </button>
@@ -263,8 +273,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
                 
                 {/* 当前画布 */}
-                <div className="px-4 py-2 bg-emerald-500/5 border-b border-white/5">
-                    <div className="text-[10px] text-zinc-500 mb-1">当前画布</div>
+                <div className={`px-4 py-2 bg-emerald-500/5 border-b ${isLight ? 'border-gray-100' : 'border-white/5'}`}>
+                    <div className={`text-[10px] mb-1 ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>当前画布</div>
                     {isEditingName ? (
                         <input
                             type="text"
@@ -287,7 +297,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 }
                             }}
                             autoFocus
-                            className="w-full bg-white/10 border border-emerald-500/30 rounded px-2 py-1 text-sm text-white outline-none focus:border-emerald-500"
+                            className={`w-full border border-emerald-500/30 rounded px-2 py-1 text-sm outline-none focus:border-emerald-500 ${isLight ? 'bg-gray-100 text-gray-900' : 'bg-white/10 text-white'}`}
                         />
                     ) : (
                         <div 
@@ -297,10 +307,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 setIsEditingName(true);
                             }}
                         >
-                            <span className="text-sm text-white font-medium truncate flex-1">
+                            <span className={`text-sm font-medium truncate flex-1 ${isLight ? 'text-gray-900' : 'text-white'}`}>
                                 {isCanvasLoading ? '加载中...' : canvasName}
                             </span>
-                            <svg className="w-3.5 h-3.5 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className={`w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity ${isLight ? 'text-gray-400' : 'text-zinc-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                         </div>
@@ -310,16 +320,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {/* 画布列表 */}
                 <div className="max-h-80 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
                     {canvasList.length === 0 ? (
-                        <div className="p-4 text-center text-zinc-500 text-sm">暂无画布</div>
+                        <div className={`p-4 text-center text-sm ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>暂无画布</div>
                     ) : (
                         canvasList
                             .sort((a, b) => b.updatedAt - a.updatedAt)
                             .map(canvas => (
                                 <div
                                     key={canvas.id}
-                                    className={`px-4 py-2.5 flex items-center justify-between group hover:bg-white/5 cursor-pointer border-b border-white/5 last:border-b-0 ${
+                                    className={`px-4 py-2.5 flex items-center justify-between group cursor-pointer border-b last:border-b-0 ${
                                         canvas.id === currentCanvasId ? 'bg-emerald-500/10' : ''
-                                    }`}
+                                    } ${isLight ? 'hover:bg-gray-100 border-gray-100' : 'hover:bg-white/5 border-white/5'}`}
                                     onClick={() => {
                                         if (canvas.id !== currentCanvasId) {
                                             onLoadCanvas(canvas.id);
@@ -328,13 +338,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     }}
                                 >
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-sm text-zinc-200 truncate flex items-center gap-2">
+                                        <div className={`text-sm truncate flex items-center gap-2 ${isLight ? 'text-gray-800' : 'text-zinc-200'}`}>
                                             {canvas.name}
                                             {canvas.id === currentCanvasId && (
-                                                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full">当前</span>
+                                                <span className="text-[9px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 px-1.5 py-0.5 rounded-full">当前</span>
                                             )}
                                         </div>
-                                        <div className="text-[10px] text-zinc-500 mt-0.5">
+                                        <div className={`text-[10px] mt-0.5 ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>
                                             {canvas.nodeCount} 个节点 · {new Date(canvas.updatedAt).toLocaleDateString()}
                                         </div>
                                     </div>
@@ -345,7 +355,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                 onDeleteCanvas(canvas.id);
                                             }
                                         }}
-                                        className="p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all"
+                                        className={`p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all ${isLight ? 'text-gray-500 hover:text-red-500' : 'text-zinc-500 hover:text-red-400'}`}
                                         title="删除画布"
                                     >
                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -358,10 +368,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
 
                 {/* 底部操作 */}
-                <div className="px-4 py-2 border-t border-white/10 bg-white/5">
+                <div className={`px-4 py-2 border-t ${isLight ? 'border-gray-200 bg-gray-50' : 'border-white/10 bg-white/5'}`}>
                     <button 
                         onClick={(e) => { e.stopPropagation(); onHome(); }}
-                        className="w-full py-1.5 text-xs text-zinc-400 hover:text-white transition-colors flex items-center justify-center gap-1.5"
+                        className={`w-full py-1.5 text-xs transition-colors flex items-center justify-center gap-1.5 ${isLight ? 'text-gray-500 hover:text-gray-900' : 'text-zinc-400 hover:text-white'}`}
                     >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -385,17 +395,19 @@ const Sidebar: React.FC<SidebarProps> = ({
             
             return (
             <div 
-                className="fixed left-24 top-1/2 -translate-y-1/2 z-30 h-[600px] w-80 bg-[#1c1c1e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 animate-in slide-in-from-left-4 fade-in duration-300 pointer-events-auto"
+                className={`fixed left-24 top-1/2 -translate-y-1/2 z-30 h-[600px] w-80 backdrop-blur-xl border rounded-2xl shadow-2xl p-4 flex flex-col gap-3 animate-in slide-in-from-left-4 fade-in duration-300 pointer-events-auto ${
+                    isLight ? 'bg-white/95 border-gray-200' : 'bg-[#1c1c1e]/95 border-white/10'
+                }`}
                 onMouseDown={(e) => e.stopPropagation()}
             >
                 {/* 头部 */}
-                <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                    <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                        <Icons.Layers size={14} className="text-purple-400"/> 
+                <div className={`flex items-center justify-between pb-2 border-b ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
+                    <h2 className={`text-sm font-bold flex items-center gap-2 ${isLight ? 'text-gray-900' : 'text-white'}`}>
+                        <Icons.Layers size={14} className="text-purple-500"/> 
                         创意库
-                        <span className="text-[10px] text-zinc-500 font-normal">({creativeIdeas.length})</span>
+                        <span className={`text-[10px] font-normal ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>({creativeIdeas.length})</span>
                     </h2>
-                    <button onClick={() => setActiveLibrary(false)} className="text-zinc-500 hover:text-white"><Icons.Close size={14}/></button>
+                    <button onClick={() => setActiveLibrary(false)} className={isLight ? 'text-gray-500 hover:text-gray-900' : 'text-zinc-500 hover:text-white'}><Icons.Close size={14}/></button>
                 </div>
                 
                 {/* 筛选按钮 */}
@@ -412,7 +424,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                             className={`px-2 py-1 text-[10px] rounded-lg transition-all ${
                                 libraryFilter === key 
                                     ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50' 
-                                    : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-transparent'
+                                    : isLight
+                                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent'
+                                      : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-transparent'
                             }`}
                         >
                             {label}
@@ -423,7 +437,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {/* 创意列表 */}
                 <div className="flex-1 overflow-y-auto pr-1 scrollbar-hide space-y-2" onWheel={(e) => e.stopPropagation()}>
                     {filteredIdeas.length === 0 ? (
-                        <div className="text-center py-8 text-zinc-500 text-xs">
+                        <div className={`text-center py-8 text-xs ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>
                             暂无创意
                         </div>
                     ) : (
@@ -445,7 +459,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                                             ? 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40'
                                             : idea.isBP
                                             ? 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-500/40'
-                                            : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
+                                            : isLight
+                                              ? 'bg-gray-100 border-gray-200 hover:bg-gray-200 hover:border-gray-300'
+                                              : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
                                     }`}
                                 >
                                     <div className="flex gap-2">
@@ -458,7 +474,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                         <div className="flex-1 min-w-0">
                                             {/* 标题行 */}
                                             <div className="flex items-center justify-between mb-0.5">
-                                                <div className="font-bold text-xs text-white truncate flex-1 mr-2">
+                                                <div className={`font-bold text-xs truncate flex-1 mr-2 ${isLight ? 'text-gray-900' : 'text-white'}`}>
                                                     {idea.isFavorite && <span className="mr-1">⭐</span>}
                                                     {idea.title}
                                                 </div>
@@ -473,7 +489,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                             </div>
                                             
                                             {/* 描述/提示词预览 */}
-                                            <div className="text-[9px] text-zinc-400 leading-relaxed line-clamp-2">
+                                            <div className={`text-[9px] leading-relaxed line-clamp-2 ${isLight ? 'text-gray-500' : 'text-zinc-400'}`}>
                                                 {idea.isBP && idea.bpFields ? (
                                                     <span className="text-zinc-500">
                                                         输入: {idea.bpFields.map(f => f.label).join(', ')}
@@ -492,14 +508,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 
                                 {/* Hover 详情 */}
                                 {hoveredIdeaId === idea.id && (
-                                    <div className="absolute left-full top-0 ml-2 w-64 bg-[#1c1c1e] border border-white/10 rounded-xl p-3 shadow-2xl z-50 pointer-events-none animate-in fade-in slide-in-from-left-2 duration-150">
+                                    <div className={`absolute left-full top-0 ml-2 w-64 border rounded-xl p-3 shadow-2xl z-50 pointer-events-none animate-in fade-in slide-in-from-left-2 duration-150 ${isLight ? 'bg-white border-gray-200' : 'bg-[#1c1c1e] border-white/10'}`}>
                                         {/* 缩略图 */}
                                         {idea.imageUrl && (
                                             <div className="w-full h-24 rounded-lg overflow-hidden mb-2 bg-black/20">
                                                 <img src={idea.imageUrl} alt="" className="w-full h-full object-cover" />
                                             </div>
                                         )}
-                                        <div className="text-xs font-bold text-white mb-1">{idea.title}</div>
+                                        <div className={`text-xs font-bold mb-1 ${isLight ? 'text-gray-900' : 'text-white'}`}>{idea.title}</div>
                                         {idea.isBP && idea.bpFields ? (
                                             <div className="space-y-1">
                                                 <div className="text-[10px] text-zinc-500">输入字段:</div>
@@ -519,7 +535,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                 ))}
                                             </div>
                                         ) : (
-                                            <div className="text-[10px] text-zinc-400 leading-relaxed max-h-32 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
+                                            <div className={`text-[10px] leading-relaxed max-h-32 overflow-y-auto ${isLight ? 'text-gray-500' : 'text-zinc-400'}`} onWheel={(e) => e.stopPropagation()}>
                                                 {idea.prompt}
                                             </div>
                                         )}
@@ -532,8 +548,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 
                 {/* 底部快捷预设 */}
                 {userPresets.length > 0 && (
-                    <div className="pt-2 border-t border-white/10">
-                        <h3 className="text-[10px] font-bold uppercase text-zinc-500 mb-2 tracking-wider">画布预设</h3>
+                    <div className={`pt-2 border-t ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
+                        <h3 className={`text-[10px] font-bold uppercase mb-2 tracking-wider ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>画布预设</h3>
                         <div className="space-y-1 max-h-32 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
                             {userPresets.slice(0, 3).map((preset) => (
                                 <button 
@@ -545,8 +561,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     }}
                                     className="w-full text-left p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all text-xs"
                                 >
-                                    <span className="text-emerald-200">{preset.title}</span>
-                                    <span className="text-[9px] text-zinc-500 ml-2">({preset.nodes.length} 节点)</span>
+                                    <span className="text-emerald-600 dark:text-emerald-200">{preset.title}</span>
+                                    <span className={`text-[9px] ml-2 ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>({preset.nodes.length} 节点)</span>
                                 </button>
                             ))}
                         </div>

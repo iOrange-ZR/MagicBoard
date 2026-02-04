@@ -1,5 +1,5 @@
 
-export type NodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'video-output' | 'frame-extractor' | 'combine' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale' | 'bp' | 'runninghub' | 'rh-config' | 'rh-param' | 'rh-main' | 'drawing-board' | 'comfyui' | 'comfy-config';
+export type NodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'video-output' | 'frame-extractor' | 'combine' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale' | 'bp' | 'runninghub' | 'rh-config' | 'rh-param' | 'rh-main' | 'drawing-board' | 'comfyui' | 'comfy-config' | 'preview';
 
 export type NodeStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -156,6 +156,12 @@ export interface NodeData {
     inputSlots: Array<{ slotKey: string; label: string; type: string; nodeId?: string; inputName?: string }>;
   };
   comfyParentNodeId?: string;
+
+  // Preview Node（多图/多视频对比预览，用户选一张作封面）
+  previewItems?: string[]; // 多图/多视频 URL 列表
+  previewCoverIndex?: number; // 当前选作封面的下标，默认 0
+  previewItemTypes?: ('image' | 'video')[]; // 可选，区分展示
+  previewExpectedCount?: number; // 本批次预期生成数量，用于展示「已生成 2/4」
 }
 
 export interface CanvasNode {
@@ -271,6 +277,9 @@ export const getNodeTypeColor = (type: NodeType): { primary: string; light: stri
     case 'comfyui':
     case 'comfy-config':
       return { primary: '#0ea5e9', light: '#38bdf8' }; // sky-500 / sky-400
+
+    case 'preview':
+      return { primary: ARCTIC_COLORS.glacierBlue, light: ARCTIC_COLORS.glacierBlueLight };
 
     default:
       return { primary: ARCTIC_COLORS.arcticGray, light: ARCTIC_COLORS.arcticGrayLight };

@@ -4,6 +4,8 @@
  * 参考文档: veo3.1.md
  */
 
+import { sanitizeHeaderValue } from '../utils/headers';
+
 // Veo 模型类型 - veo3.1 系列7个模型
 export type VeoModel = 
   | 'veo3.1-fast'           // 快速模式
@@ -175,7 +177,7 @@ export async function createVeoTask(params: VeoGenerationParams): Promise<string
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${sanitizeHeaderValue(config.apiKey)}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -220,7 +222,7 @@ export async function getVeoTaskStatus(taskId: string): Promise<{
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${sanitizeHeaderValue(config.apiKey)}`
       }
     });
 
