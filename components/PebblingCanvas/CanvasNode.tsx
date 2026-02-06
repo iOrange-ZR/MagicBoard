@@ -340,6 +340,7 @@ interface CanvasNodeProps {
   onDownload: (id: string) => void;
   onStartConnection: (nodeId: string, portType: 'in' | 'out', position: { x: number, y: number }) => void;
   onEndConnection: (nodeId: string, portKey?: string) => void; // portKey: rh-config 参数端口标识
+  onOutputDoubleClick?: (nodeId: string) => void; // 双击输出口时弹出添加节点
   onDragStart: (e: React.MouseEvent, id: string) => void;
   scale: number;
   effectiveColor?: string;
@@ -375,6 +376,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   onDownload,
   onStartConnection,
   onEndConnection,
+  onOutputDoubleClick,
   onDragStart,
   scale,
   effectiveColor,
@@ -643,6 +645,12 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
       onStartConnection(node.id, type, { x, y });
   };
 
+  /** 点击输入框/提示词区域时先选中节点再阻止冒泡，避免需要再点一次节点才选中 */
+  const handleInputAreaMouseDown = (e: React.MouseEvent) => {
+      onSelect(node.id, e.shiftKey);
+      e.stopPropagation();
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
           const file = e.target.files[0];
@@ -767,7 +775,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         value={localSystem}
                         onChange={(e) => setLocalSystem(e.target.value)}
                         onBlur={handleUpdate}
-                        onMouseDown={(e) => e.stopPropagation()} 
+                        onMouseDown={handleInputAreaMouseDown} 
                     />
                 </div>
                 
@@ -780,7 +788,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         value={localPrompt}
                         onChange={(e) => setLocalPrompt(e.target.value)}
                         onBlur={handleUpdate}
-                        onMouseDown={(e) => e.stopPropagation()} 
+                        onMouseDown={handleInputAreaMouseDown} 
                     />
                 </div>
             </div>
@@ -1481,7 +1489,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                                         creativeIdeas={creativeIdeasForImage}
                                         isLightCanvas={!!isLightCanvas}
                                         themeColors={themeColors}
-                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onMouseDown={handleInputAreaMouseDown}
                                     />
                                 ))}
                             </div>
@@ -1866,7 +1874,8 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         const rect = e.currentTarget.getBoundingClientRect();
                         onStartConnection(node.id, 'out', { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
                     }}
-                    title="连接到参数"
+                    onDoubleClick={(e) => { e.stopPropagation(); onOutputDoubleClick?.(node.id); }}
+                    title="连接 / 双击添加节点"
                 />
                 
                 {isRunning && (
@@ -2020,7 +2029,8 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         const rect = e.currentTarget.getBoundingClientRect();
                         onStartConnection(node.id, 'out', { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
                     }}
-                    title="串联输出"
+                    onDoubleClick={(e) => { e.stopPropagation(); onOutputDoubleClick?.(node.id); }}
+                    title="连接 / 双击添加节点"
                 />
                 
                 {/* 内容区 */}
@@ -3324,7 +3334,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                           value={localPrompt}
                           onChange={(e) => setLocalPrompt(e.target.value)}
                           onBlur={handleUpdate}
-                          onMouseDown={(e) => e.stopPropagation()}
+                          onMouseDown={handleInputAreaMouseDown}
                           rows={2}
                       />
                    </div>
@@ -3466,7 +3476,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                                 value={localPrompt}
                                 onChange={(e) => setLocalPrompt(e.target.value)}
                                 onBlur={handleUpdate}
-                                onMouseDown={(e) => e.stopPropagation()}
+                                onMouseDown={handleInputAreaMouseDown}
                             />
                             {isKlingO1 && klingO1Inputs.length > 0 && (
                                 <p className={`text-[9px] ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
@@ -3480,7 +3490,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                                     value={localKlingNegativePrompt}
                                     onChange={(e) => setLocalKlingNegativePrompt(e.target.value)}
                                     onBlur={handleUpdate}
-                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onMouseDown={handleInputAreaMouseDown}
                                 />
                             )}
                         </div>
@@ -3491,7 +3501,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             value={localPrompt}
                             onChange={(e) => setLocalPrompt(e.target.value)}
                             onBlur={handleUpdate}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onMouseDown={handleInputAreaMouseDown}
                         />
                     )}
                     
@@ -4559,7 +4569,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             value={localPrompt}
                             onChange={(e) => setLocalPrompt(e.target.value)}
                             onBlur={handleUpdate}
-                            onMouseDown={(e) => e.stopPropagation()} 
+                            onMouseDown={handleInputAreaMouseDown} 
                             rows={2}
                         />
                     </div>
@@ -4594,7 +4604,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                                 value={localPrompt}
                                 onChange={(e) => setLocalPrompt(e.target.value)}
                                 onBlur={handleUpdate}
-                                onMouseDown={(e) => e.stopPropagation()}
+                                onMouseDown={handleInputAreaMouseDown}
                             />
                         </div>
                     </div>
@@ -4730,7 +4740,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             const p = node.type === 'remove-bg' && !localPrompt ? REMOVE_BG_DEFAULT_PROMPT : localPrompt;
                             onUpdate(node.id, { content: localContent, data: { ...node.data, prompt: p, klingNegativePrompt: localKlingNegativePrompt, systemInstruction: localSystem, resizeMode: resizeMode, resizeWidth: resizeWidth, resizeHeight: resizeHeight } });
                         }}
-                        onMouseDown={(e) => e.stopPropagation()} 
+                        onMouseDown={handleInputAreaMouseDown} 
                     />
                      <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-white/10 rounded text-[8px] font-bold text-zinc-400 uppercase">
                         IMG OUT
@@ -4763,7 +4773,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         {isEditing ? (
            <div 
                className="flex-1 p-3 flex flex-col h-full gap-2" 
-               onMouseDown={(e) => e.stopPropagation()}
+               onMouseDown={handleInputAreaMouseDown}
                onWheel={handleTextWheel}
            >
                {/* Content Input */}
@@ -4850,6 +4860,8 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         <div 
           className={`absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full z-50 hover:scale-150 transition-all cursor-crosshair flex items-center justify-center border ${outputPortColor}`}
           onMouseDown={(e) => handlePortDown(e, 'out')}
+          onDoubleClick={(e) => { e.stopPropagation(); onOutputDoubleClick?.(node.id); }}
+          title="连接 / 双击添加节点"
         />
       )}
 

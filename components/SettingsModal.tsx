@@ -101,6 +101,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // RunningHub 相关状态
   const [showRunningHubKey, setShowRunningHubKey] = useState(false);
 
+  // 画布撤销步数（1–50，默认 5）
+  const [canvasUndoSteps, setCanvasUndoSteps] = useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem('canvas_undo_max_steps') || '5', 10);
+      return Math.min(50, Math.max(1, isNaN(v) ? 5 : v));
+    } catch {
+      return 5;
+    }
+  });
+
   useEffect(() => {
     setLocalThirdPartyUrl(thirdPartyConfig.baseUrl || 'https://api.bltcy.ai');
     setLocalThirdPartyKey(thirdPartyConfig.apiKey || '');
@@ -112,6 +122,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      try {
+        const v = parseInt(localStorage.getItem('canvas_undo_max_steps') || '5', 10);
+        setCanvasUndoSteps(Math.min(50, Math.max(1, isNaN(v) ? 5 : v)));
+      } catch {}
       const config = getVideoApiConfig();
       setVideoApiConfig({ apiKey: config.apiKey, baseUrl: config.baseUrl || 'https://api.bltcy.ai' });
       
@@ -633,6 +647,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* FEATURES */}
           <div>
             <div className="section-title">FEATURES</div>
+
+            {/* 画布撤销步数 */}
+            <div className="config-card">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="option-icon" style={{ background: 'rgba(59, 130, 246, 0.15)' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={styles.primaryLight} strokeWidth="2">
+                    <path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l5-5M3 10l5 5"/>
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium" style={{ color: styles.textPrimary }}>画布撤销步数</h4>
+                  <p className="text-xs" style={{ color: styles.textSecondary }}>Ctrl+Z 可撤销的操作步数（1–50）</p>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">最多记录步数</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="form-input"
+                  value={canvasUndoSteps}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v)) {
+                      const clamped = Math.min(50, Math.max(1, v));
+                      setCanvasUndoSteps(clamped);
+                      try { localStorage.setItem('canvas_undo_max_steps', String(clamped)); } catch {}
+                    }
+                  }}
+                />
+              </div>
+            </div>
             
             {/* 自动保存 */}
             <div className="config-card flex items-center justify-between">

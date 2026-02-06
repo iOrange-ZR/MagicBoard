@@ -366,6 +366,64 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       connectionsRef.current = connections;
   }, [connections]);
 
+  // 撤销历史：默认 5 步，可在设置中调整 1–50 步
+  const DEFAULT_UNDO_STEPS = 5;
+  const MAX_UNDO_STEPS = 50;
+  const getMaxUndoSteps = useCallback((): number => {
+    try {
+      const v = parseInt(localStorage.getItem('canvas_undo_max_steps') || String(DEFAULT_UNDO_STEPS), 10);
+      return Math.min(MAX_UNDO_STEPS, Math.max(1, isNaN(v) ? DEFAULT_UNDO_STEPS : v));
+    } catch {
+      return DEFAULT_UNDO_STEPS;
+    }
+  }, []);
+  const historyRef = useRef<{ nodes: CanvasNode[]; connections: Connection[] }[]>([]);
+  const prevNodesRef = useRef<CanvasNode[]>([]);
+  const prevConnectionsRef = useRef<Connection[]>([]);
+  const isFirstRunRef = useRef(true);
+  const isUndoRef = useRef(false);
+  const isLoadRef = useRef(false);
+
+  // 过程记录：在 nodes/connections 变更后把上一状态压入撤销栈（排除首次、撤销、加载）
+  useEffect(() => {
+    if (isFirstRunRef.current) {
+      isFirstRunRef.current = false;
+      prevNodesRef.current = nodes;
+      prevConnectionsRef.current = connections;
+      return;
+    }
+    if (isUndoRef.current) {
+      isUndoRef.current = false;
+      prevNodesRef.current = nodes;
+      prevConnectionsRef.current = connections;
+      return;
+    }
+    if (isLoadRef.current) {
+      isLoadRef.current = false;
+      prevNodesRef.current = nodes;
+      prevConnectionsRef.current = connections;
+      return;
+    }
+    const prevNodes = prevNodesRef.current;
+    const prevConnections = prevConnectionsRef.current;
+    prevNodesRef.current = nodes;
+    prevConnectionsRef.current = connections;
+    const maxSteps = getMaxUndoSteps();
+    historyRef.current.push({
+      nodes: JSON.parse(JSON.stringify(prevNodes)),
+      connections: JSON.parse(JSON.stringify(prevConnections)),
+    });
+    if (historyRef.current.length > maxSteps) historyRef.current.shift();
+  }, [nodes, connections, getMaxUndoSteps]);
+
+  const undo = useCallback(() => {
+    if (historyRef.current.length === 0) return;
+    const last = historyRef.current.pop()!;
+    isUndoRef.current = true;
+    setNodes(last.nodes);
+    setConnections(last.connections);
+  }, []);
+
   // 加载 ComfyUI 工作流列表与地址列表（画布激活时拉取，供节点下拉选择）
   useEffect(() => {
     if (!isActive) return;
@@ -503,6 +561,17 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       startPos: Vec2;
       currPos: Vec2;
   }>({ active: false, fromNode: null, startPos: { x: 0, y: 0 }, currPos: { x: 0, y: 0 } });
+
+  // 从 output/空白/连线 添加节点菜单（sourceNodeId 无则仅创建节点不连线；toNodeId+connId 有则作为中间节点插入）
+  const [addNodeFromOutputMenu, setAddNodeFromOutputMenu] = useState<{
+    position: Vec2;
+    sourceNodeId?: string;
+    toNodeId?: string;
+    connId?: string;
+    toPortKey?: string;
+    toPortOffsetY?: number;
+  } | null>(null);
+  const releasedOnNodeRef = useRef(false); // 本次 mouseup 是否释放在节点上，避免误弹菜单
 
   // Generation Global Flag (Floating Input)
   const [isGenerating, setIsGenerating] = useState(false);
@@ -648,7 +717,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         nodesRef.current = [];
         connectionsRef.current = [];
         console.log('[画布切换] 🧹 已清空 nodesRef');
-        
+
+        // 加载画布时不写入撤销历史
+        isLoadRef.current = true;
         // 然后更新 state 和 ref
         setNodes(loadedNodes);
         setConnections(loadedConnections);
@@ -745,6 +816,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       if (result.success && result.data) {
         setCurrentCanvasId(result.data.id);
         setCanvasName(result.data.name);
+        isLoadRef.current = true;
         setNodes([]);
         setConnections([]);
         nodesRef.current = [];
@@ -1517,6 +1589,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           }
 
           if (e.ctrlKey || e.metaKey) {
+              if (e.key === 'z') {
+                  e.preventDefault();
+                  undo();
+              }
               if (e.key === 'c') {
                   e.preventDefault();
                   handleCopy();
@@ -1566,7 +1642,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           window.removeEventListener('keyup', handleKeyUp);
           window.removeEventListener('sidebar-drag-end', handleSidebarDragEnd);
       };
-  }, [deleteSelection, handleCopy, handlePaste, canvasOffset, scale, isActive]);
+  }, [deleteSelection, handleCopy, handlePaste, canvasOffset, scale, isActive, undo]);
 
   // Wheel event handler for zooming
   const onWheel = useCallback((e: WheelEvent) => {
@@ -4975,6 +5051,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       setIsDraggingCanvas(false);
       setDraggingNodeId(null);
       setIsDragOperation(false);
+      // 从 output 拖拽连线松手到空白处：弹出添加节点菜单（释放在节点上时不弹）
+      if (linkingState.active && linkingState.fromNode && !releasedOnNodeRef.current) {
+          setAddNodeFromOutputMenu({
+              position: { ...linkingState.currPos },
+              sourceNodeId: linkingState.fromNode
+          });
+      }
+      releasedOnNodeRef.current = false;
       setLinkingState(prev => ({ ...prev, active: false, fromNode: null }));
 
       // 拖拽结束后标记未保存
@@ -5070,6 +5154,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   };
 
   const handleEndConnection = async (targetNodeId: string, portKey?: string) => {
+      releasedOnNodeRef.current = true; // 本次松手在节点上，不弹添加节点菜单
       if (linkingState.active && linkingState.fromNode && linkingState.fromNode !== targetNodeId) {
           const sourceNodeId = linkingState.fromNode;
           const targetNode = nodes.find(n => n.id === targetNodeId);
@@ -5163,6 +5248,68 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       }]);
       setHasUnsavedChanges(true); // 标记未保存
   };
+
+  // 从菜单添加节点：支持仅创建、从 output 连线、或作为中间节点插入
+  const handleAddNodeFromOutput = useCallback((type: NodeType) => {
+      if (!addNodeFromOutputMenu) return;
+      const { position, sourceNodeId, toNodeId, connId, toPortKey, toPortOffsetY } = addNodeFromOutputMenu;
+      const newNode = addNode(type, '', position);
+      if (toNodeId && connId && sourceNodeId) {
+          // 作为中间节点：删除原连线，新增 源→新节点、新节点→目标
+          setConnections(prev => [
+              ...prev.filter(c => c.id !== connId),
+              { id: uuid(), fromNode: sourceNodeId, toNode: newNode.id },
+              { id: uuid(), fromNode: newNode.id, toNode: toNodeId, toPortKey, toPortOffsetY }
+          ]);
+      } else if (sourceNodeId) {
+          setConnections(prev => [...prev, { id: uuid(), fromNode: sourceNodeId, toNode: newNode.id }]);
+      }
+      setHasUnsavedChanges(true);
+      setAddNodeFromOutputMenu(null);
+  }, [addNodeFromOutputMenu]);
+
+  // 双击输出口：在节点右侧弹出添加节点菜单
+  const handleOutputDoubleClick = useCallback((nodeId: string) => {
+      setLinkingState(prev => ({ ...prev, active: false, fromNode: null }));
+      const node = nodesRef.current.find(n => n.id === nodeId);
+      if (!node) return;
+      const position: Vec2 = { x: node.x + node.width + 80, y: node.y + node.height / 2 - 40 };
+      setAddNodeFromOutputMenu({ position, sourceNodeId: nodeId });
+  }, []);
+
+  // 双击连线：在点击位置弹出添加节点菜单（新节点将作为中间节点插入）
+  const handleConnectionDoubleClick = useCallback((conn: Connection, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const position: Vec2 = {
+          x: (e.clientX - rect.left - canvasOffset.x) / scale,
+          y: (e.clientY - rect.top - canvasOffset.y) / scale
+      };
+      setAddNodeFromOutputMenu({
+          position,
+          sourceNodeId: conn.fromNode,
+          toNodeId: conn.toNode,
+          connId: conn.id,
+          toPortKey: conn.toPortKey,
+          toPortOffsetY: conn.toPortOffsetY
+      });
+  }, [canvasOffset, scale]);
+
+  // 左键双击空白：在点击位置弹出添加节点菜单（不自动连线）
+  const onDoubleClickCanvas = useCallback((e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // 仅响应点在空白区域（容器本身或带 data-canvas-content 的变换层，排除节点和连线）
+      const isBlank = target === containerRef.current || target.getAttribute?.('data-canvas-content') === 'true';
+      if (!isBlank || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const position: Vec2 = {
+          x: (e.clientX - rect.left - canvasOffset.x) / scale,
+          y: (e.clientY - rect.top - canvasOffset.y) / scale
+      };
+      setAddNodeFromOutputMenu({ position });
+  }, [canvasOffset, scale]);
 
   // 处理视频帧提取
   const handleExtractFrame = async (nodeId: string, position: 'first' | 'last' | number) => {
@@ -5517,6 +5664,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         onMouseDown={onMouseDownCanvas}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
+        onDoubleClick={onDoubleClickCanvas}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       > 
@@ -5532,8 +5680,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             }}
         />
 
-        {/* Canvas Content Container */}
+        {/* Canvas Content Container - data-canvas-content 用于区分双击空白与双击节点/连线 */}
         <div 
+            data-canvas-content="true"
             style={{ 
                 transform: `translate3d(${canvasOffset.x}px, ${canvasOffset.y}px, 0) scale(${scale})`,
                 transformOrigin: '0 0',
@@ -5600,9 +5749,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     </filter>
                 </defs>
                 {connections.map(conn => {
-                    // 🔧 使用 nodesRef 获取最新位置，确保拖拽时连线实时跟随
-                    const from = nodesRef.current.find(n => n.id === conn.fromNode);
-                    const to = nodesRef.current.find(n => n.id === conn.toNode);
+                    // 使用 nodes 状态保证新添加节点后同帧即可渲染连线（nodesRef 会晚一帧）
+                    const from = nodes.find(n => n.id === conn.fromNode);
+                    const to = nodes.find(n => n.id === conn.toNode);
                     if (!from || !to) return null;
 
                     const startX = from.x + from.width;
@@ -5716,13 +5865,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     const pathD = `M ${startX} ${startY} C ${ctrl1X} ${ctrl1Y}, ${ctrl2X} ${ctrl2Y}, ${endX} ${endY}`;
 
                     return (
-                        <g key={conn.id} onClick={() => setSelectedConnectionId(conn.id)} className="pointer-events-auto cursor-pointer group">
+                        <g key={conn.id} onClick={() => setSelectedConnectionId(conn.id)} onDoubleClick={(e) => handleConnectionDoubleClick(conn, e)} className="pointer-events-auto cursor-pointer group">
                              {/* 点击区域 */}
                              <path 
                                 d={pathD}
                                 stroke="transparent"
                                 strokeWidth="20"
                                 fill="none"
+                                style={{ cursor: 'pointer' }}
                             />
                             {/* 外层光晕 */}
                             <path 
@@ -5943,6 +6093,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                         handleStartConnection(id, type, pos);
                     }}
                     onEndConnection={handleEndConnection}
+                    onOutputDoubleClick={handleOutputDoubleClick}
                     onCreateToolNode={handleCreateToolNode}
                     onExtractFrame={handleExtractFrame}
                     onCreateFrameExtractor={handleCreateFrameExtractor}
@@ -6655,6 +6806,37 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             isLight={isLightCanvas}
           />
       )}
+
+      {/* 从 output 添加节点菜单（双击/拖拽连线后弹出） */}
+      {addNodeFromOutputMenu && containerRef.current && (() => {
+          const rect = containerRef.current.getBoundingClientRect();
+          const menuX = rect.left + canvasOffset.x + addNodeFromOutputMenu.position.x * scale;
+          const menuY = rect.top + canvasOffset.y + addNodeFromOutputMenu.position.y * scale;
+          // 与左侧边栏名称、分组顺序一致：媒体 → 逻辑 → 第三方 → 其他
+          const addNodeOptions = [
+              { label: '图片', action: () => handleAddNodeFromOutput('image') },
+              { label: '文本', action: () => handleAddNodeFromOutput('text') },
+              { label: '视频', action: () => handleAddNodeFromOutput('video') },
+              { label: 'LLM / 视觉', action: () => handleAddNodeFromOutput('llm') },
+              { label: '中继', action: () => handleAddNodeFromOutput('relay') },
+              { label: '魔法扩图', action: () => handleAddNodeFromOutput('edit') },
+              { label: '画板', action: () => handleAddNodeFromOutput('drawing-board') },
+              { label: 'RunningHub', action: () => handleAddNodeFromOutput('runninghub') },
+              { label: 'ComfyUI', action: () => handleAddNodeFromOutput('comfyui') },
+              { label: '去背', action: () => handleAddNodeFromOutput('remove-bg') },
+              { label: '放大', action: () => handleAddNodeFromOutput('upscale') },
+              { label: '预览', action: () => handleAddNodeFromOutput('preview') },
+          ];
+          return (
+              <ContextMenu
+                  x={menuX}
+                  y={menuY}
+                  onClose={() => setAddNodeFromOutputMenu(null)}
+                  options={addNodeOptions}
+                  isLight={isLightCanvas}
+              />
+          );
+      })()}
 
       {/* Modals */}
       {showPresetModal && (
