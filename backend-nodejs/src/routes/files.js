@@ -23,13 +23,13 @@ router.get('/input', (req, res) => {
 // 保存图片到output目录（并生成缩略图）
 router.post('/save-output', async (req, res) => {
   const { imageData, filename } = req.body;
-  
+
   if (!imageData) {
     return res.status(400).json({ success: false, error: '缺少图片数据' });
   }
-  
+
   const result = FileHandler.saveImage(imageData, config.OUTPUT_DIR, filename);
-  
+
   // 异步生成缩略图（不阻塞主流程）
   if (result.success && result.data?.path) {
     ThumbnailGenerator.generate(result.data.path, 'output').then(thumbResult => {
@@ -38,24 +38,24 @@ router.post('/save-output', async (req, res) => {
       }
     }).catch(err => console.error('[Thumbnail] 生成失败:', err.message));
   }
-  
+
   res.json(result);
 });
 
 // 保存视频到output目录
 router.post('/save-video', async (req, res) => {
   const { videoData, filename } = req.body;
-  
+
   if (!videoData) {
     return res.status(400).json({ success: false, error: '缺少视频数据' });
   }
-  
+
   const result = FileHandler.saveVideo(videoData, config.OUTPUT_DIR, filename);
-  
+
   if (result.success) {
     console.log(`[Video] 视频已保存: ${result.data.filename}`);
   }
-  
+
   res.json(result);
 });
 
@@ -124,13 +124,13 @@ router.post('/move-output-to-folder', (req, res) => {
 // 保存图片到input目录（并生成缩略图）
 router.post('/save-input', async (req, res) => {
   const { imageData, filename } = req.body;
-  
+
   if (!imageData) {
     return res.status(400).json({ success: false, error: '缺少图片数据' });
   }
-  
+
   const result = FileHandler.saveImage(imageData, config.INPUT_DIR, filename);
-  
+
   // 异步生成缩略图
   if (result.success && result.data?.path) {
     ThumbnailGenerator.generate(result.data.path, 'input').then(thumbResult => {
@@ -139,25 +139,25 @@ router.post('/save-input', async (req, res) => {
       }
     }).catch(err => console.error('[Thumbnail] 生成失败:', err.message));
   }
-  
+
   res.json(result);
 });
 
 // 保存图片到系统桌面
 router.post('/save-desktop', (req, res) => {
   const { imageData, filename } = req.body;
-  
+
   if (!imageData) {
     return res.status(400).json({ success: false, error: '缺少图片数据' });
   }
-  
+
   const desktopPath = PathHelper.getDesktopPath();
   const result = FileHandler.saveImage(imageData, desktopPath, filename);
-  
+
   if (result.success) {
     result.desktop_path = desktopPath;
   }
-  
+
   res.json(result);
 });
 
@@ -165,13 +165,13 @@ router.post('/save-desktop', (req, res) => {
 router.delete('/output/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(config.OUTPUT_DIR, filename);
-  
+
   // 安全检查：确保文件在output目录内
   const safePath = PathHelper.safePath(config.OUTPUT_DIR, filename);
   if (!safePath) {
     return res.status(400).json({ success: false, error: '非法文件路径' });
   }
-  
+
   const deleted = FileHandler.deleteFile(filePath);
   if (deleted) {
     // 同时删除缩略图
@@ -186,13 +186,13 @@ router.delete('/output/:filename', (req, res) => {
 router.delete('/input/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(config.INPUT_DIR, filename);
-  
+
   // 安全检查：确保文件在input目录内
   const safePath = PathHelper.safePath(config.INPUT_DIR, filename);
   if (!safePath) {
     return res.status(400).json({ success: false, error: '非法文件路径' });
   }
-  
+
   const deleted = FileHandler.deleteFile(filePath);
   if (deleted) {
     // 同时删除缩略图
@@ -206,42 +206,80 @@ router.delete('/input/:filename', (req, res) => {
 // 批量保存图片/视频到output子文件夹
 router.post('/save-batch', async (req, res) => {
   const { items, subFolder, coverIndex } = req.body;
-  
+
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ success: false, error: '缺少批量数据' });
   }
   if (!subFolder) {
     return res.status(400).json({ success: false, error: '缺少子文件夹名称' });
   }
-  
+
   // 安全处理文件夹名
   const safeFolderName = subFolder.replace(/[<>:"\/\\|?*]/g, '_').trim() || `batch_${Date.now()}`;
   const batchDir = path.join(config.OUTPUT_DIR, safeFolderName);
-  
+
   try {
     // 确保子文件夹存在
     FileHandler.ensureDir(batchDir);
-    
+
     const results = [];
     const urlPrefix = `/files/output/${safeFolderName}`;
-    
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (!item.data) {
         results.push({ index: i, success: false, error: '缺少数据' });
         continue;
       }
-      
-      // 判断是视频还是图片
-      const isVideo = item.isVideo || item.data.startsWith('data:video');
+
+      // 判断数据类型：URL路径引用 OR Base64数据
+      const isUrlReference = item.data.startsWith('/files/');
       let saveResult;
-      
-      if (isVideo) {
-        saveResult = FileHandler.saveVideo(item.data, batchDir, item.filename || null);
+
+      if (isUrlReference) {
+        // 处理已有文件的引用（直接复制文件）
+        try {
+          const urlParts = item.data.split('/');
+          // url format: /files/{dirType}/{...subFolders}/{filename}
+          if (urlParts.length < 4) throw new Error('无效的文件引用路径');
+
+          const dirType = urlParts[2];
+          let baseDir;
+          if (dirType === 'output') baseDir = config.OUTPUT_DIR;
+          else if (dirType === 'input') baseDir = config.INPUT_DIR;
+          else if (dirType === 'creative' || dirType === 'creative_images') baseDir = config.CREATIVE_IMAGES_DIR;
+          else throw new Error('不支持的源文件目录');
+
+          const decodedRelPath = decodeURIComponent(urlParts.slice(3).join('/'));
+          const srcPath = path.join(baseDir, decodedRelPath);
+
+          if (!fs.existsSync(srcPath)) throw new Error(`源文件不存在: ${srcPath}`);
+
+          const targetFilename = item.filename || path.basename(srcPath);
+          const destPath = path.join(batchDir, targetFilename);
+
+          fs.copyFileSync(srcPath, destPath);
+
+          saveResult = {
+            success: true,
+            data: {
+              filename: targetFilename,
+              path: destPath
+            }
+          };
+        } catch (err) {
+          saveResult = { success: false, error: err.message };
+        }
       } else {
-        saveResult = FileHandler.saveImage(item.data, batchDir, item.filename || null);
+        // 处理 Base64 数据
+        const isVideo = item.isVideo || item.data.startsWith('data:video');
+        if (isVideo) {
+          saveResult = FileHandler.saveVideo(item.data, batchDir, item.filename || null);
+        } else {
+          saveResult = FileHandler.saveImage(item.data, batchDir, item.filename || null);
+        }
       }
-      
+
       if (saveResult.success) {
         // 修正URL为子文件夹路径（批量保存不生成缩略图，避免部分格式导致「Input file contains unsupported image format」）
         saveResult.data.url = `${urlPrefix}/${saveResult.data.filename}`;
@@ -250,11 +288,11 @@ router.post('/save-batch', async (req, res) => {
         results.push({ index: i, success: false, error: saveResult.error });
       }
     }
-    
+
     // 统计
     const successCount = results.filter(r => r.success).length;
     console.log(`[BatchSave] ${safeFolderName}: ${successCount}/${items.length} 保存成功`);
-    
+
     res.json({
       success: true,
       data: {
@@ -275,36 +313,36 @@ router.post('/save-batch', async (req, res) => {
 // 下载远程图片并保存到本地output目录（支持URL格式）
 router.post('/download-remote', async (req, res) => {
   const { imageUrl, filename } = req.body;
-  
+
   if (!imageUrl) {
     return res.status(400).json({ success: false, error: '缺少图片URL' });
   }
-  
+
   // 验证是否为有效的URL
   if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
     return res.status(400).json({ success: false, error: '无效的URL格式' });
   }
-  
+
   try {
     console.log('[Download] 开始下载远程图片:', imageUrl.substring(0, 80) + '...');
-    
+
     // 下载图片
     const response = await fetch(imageUrl);
     if (!response.ok) {
       throw new Error(`下载失败: ${response.status} ${response.statusText}`);
     }
-    
+
     const buffer = await response.arrayBuffer();
     const base64 = Buffer.from(buffer).toString('base64');
-    
+
     // 确定文件类型
     const contentType = response.headers.get('content-type') || 'image/png';
     const mimeType = contentType.split(';')[0].trim();
     const dataUrl = `data:${mimeType};base64,${base64}`;
-    
+
     // 保存到output目录
     const result = FileHandler.saveImage(dataUrl, config.OUTPUT_DIR, filename);
-    
+
     // 异步生成缩略图
     if (result.success && result.data?.path) {
       ThumbnailGenerator.generate(result.data.path, 'output').then(thumbResult => {
@@ -313,7 +351,7 @@ router.post('/download-remote', async (req, res) => {
         }
       }).catch(err => console.error('[Thumbnail] 生成失败:', err.message));
     }
-    
+
     console.log('[Download] 远程图片已保存:', result.data?.filename);
     res.json(result);
   } catch (error) {
@@ -325,28 +363,28 @@ router.post('/download-remote', async (req, res) => {
 // 下载远程视频并保存到本地output目录（后端代理，绕过CORS）
 router.post('/download-remote-video', async (req, res) => {
   const { videoUrl, filename } = req.body;
-  
+
   if (!videoUrl) {
     return res.status(400).json({ success: false, error: '缺少视频URL' });
   }
-  
+
   // 验证是否为有效的URL
   if (!videoUrl.startsWith('http://') && !videoUrl.startsWith('https://')) {
     return res.status(400).json({ success: false, error: '无效的URL格式' });
   }
-  
+
   // 重试下载函数
   const downloadWithRetry = async (url, maxRetries = 3, timeout = 120000) => {
     let lastError;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         console.log(`[Download Video] 尝试下载 (${attempt}/${maxRetries}):`, url.substring(0, 80) + '...');
-        
+
         // 创建 AbortController 用于超时控制
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
-        
+
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
@@ -354,13 +392,13 @@ router.post('/download-remote-video', async (req, res) => {
             'Accept': 'video/*,*/*'
           }
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         console.log(`[Download Video] 下载成功，Content-Type:`, response.headers.get('content-type'));
         return response;
       } catch (err) {
@@ -368,7 +406,7 @@ router.post('/download-remote-video', async (req, res) => {
         const isAbort = err.name === 'AbortError';
         const errorMsg = isAbort ? '下载超时' : err.message;
         console.warn(`[Download Video] 尝试 ${attempt} 失败:`, errorMsg);
-        
+
         if (attempt < maxRetries) {
           // 等待后重试（指数退避）
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
@@ -377,27 +415,27 @@ router.post('/download-remote-video', async (req, res) => {
         }
       }
     }
-    
+
     throw lastError;
   };
-  
+
   try {
     console.log('[Download Video] 开始下载远程视频:', videoUrl.substring(0, 100));
-    
+
     // 下载视频（带重试）
     const response = await downloadWithRetry(videoUrl);
-    
+
     const buffer = await response.arrayBuffer();
     const base64 = Buffer.from(buffer).toString('base64');
-    
+
     // 确定文件类型
     const contentType = response.headers.get('content-type') || 'video/mp4';
     const mimeType = contentType.split(';')[0].trim();
     const dataUrl = `data:${mimeType};base64,${base64}`;
-    
+
     // 保存到output目录
     const result = FileHandler.saveVideo(dataUrl, config.OUTPUT_DIR, filename);
-    
+
     console.log('[Download Video] 远程视频已保存:', result.data?.filename, '大小:', (buffer.byteLength / 1024 / 1024).toFixed(2), 'MB');
     res.json(result);
   } catch (error) {
@@ -412,7 +450,7 @@ router.post('/download-remote-video', async (req, res) => {
 // 🔧 单独重建某个图片的缩略图
 router.post('/rebuild-thumbnail', async (req, res) => {
   const { imageUrl } = req.body;
-  
+
   if (!imageUrl || !imageUrl.startsWith('/files/')) {
     return res.status(400).json({ success: false, error: '无效的图片URL' });
   }
@@ -427,7 +465,7 @@ router.post('/rebuild-thumbnail', async (req, res) => {
     const dirName = parts[2]; // output, input, creative_images
     const filename = parts[parts.length - 1]; // 最后一个部分是文件名
     const subParts = parts.slice(3, parts.length - 1); // 子目录部分（可能为空）
-    
+
     // 确定源目录
     let sourceDir;
     if (dirName === 'output') sourceDir = config.OUTPUT_DIR;
@@ -441,7 +479,7 @@ router.post('/rebuild-thumbnail', async (req, res) => {
     const sourcePath = subParts.length > 0
       ? path.join(sourceDir, ...subParts, filename)
       : path.join(sourceDir, filename);
-    
+
     // 检查原图是否存在
     const fs = require('fs');
     if (!fs.existsSync(sourcePath)) {
@@ -452,7 +490,7 @@ router.post('/rebuild-thumbnail', async (req, res) => {
     const normalizedDirName = dirName === 'creative' ? 'creative_images' : dirName;
     const subPrefix = subParts.length > 0 ? subParts.join('_') + '_' : '';
     const result = await ThumbnailGenerator.generate(sourcePath, normalizedDirName, subPrefix);
-    
+
     if (result.success) {
       console.log(`[Thumbnail] 重建缩略图成功: ${filename}`);
       res.json({ success: true, thumbnailUrl: result.thumbnailUrl });
@@ -468,16 +506,16 @@ router.post('/rebuild-thumbnail', async (req, res) => {
 router.post('/generate-thumbnails', async (req, res) => {
   try {
     console.log('[Thumbnail] 开始批量生成缩略图...');
-    
+
     const results = {
       output: await ThumbnailGenerator.generateBatch(config.OUTPUT_DIR, 'output'),
       input: await ThumbnailGenerator.generateBatch(config.INPUT_DIR, 'input'),
       creative: await ThumbnailGenerator.generateBatch(config.CREATIVE_IMAGES_DIR, 'creative_images'),
     };
-    
+
     const totalCount = results.output.count + results.input.count + results.creative.count;
     const totalSkipped = (results.output.skipped || 0) + (results.input.skipped || 0) + (results.creative.skipped || 0);
-    
+
     res.json({
       success: true,
       message: `缩略图生成完成: ${totalCount} 个新生成, ${totalSkipped} 个已跳过`,
@@ -492,27 +530,27 @@ router.post('/generate-thumbnails', async (req, res) => {
 // 🔧 保存缩略图到thumbnails目录（用于视频首帧缩略图）
 router.post('/save-thumbnail', async (req, res) => {
   const { imageData, filename } = req.body;
-  
+
   if (!imageData) {
     return res.status(400).json({ success: false, error: '缺少图片数据' });
   }
-  
+
   try {
     // 确保缩略图目录存在
     const fs = require('fs');
     if (!fs.existsSync(config.THUMBNAILS_DIR)) {
       fs.mkdirSync(config.THUMBNAILS_DIR, { recursive: true });
     }
-    
+
     // 保存到缩略图目录
     const result = FileHandler.saveImage(imageData, config.THUMBNAILS_DIR, filename);
-    
+
     if (result.success && result.data) {
       // 返回正确的URL路径
       result.data.url = `/files/thumbnails/${result.data.filename}`;
       console.log(`[Thumbnail] 视频缩略图已保存: ${result.data.filename}`);
     }
-    
+
     res.json(result);
   } catch (error) {
     console.error('[Thumbnail] 保存失败:', error);

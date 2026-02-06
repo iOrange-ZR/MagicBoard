@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { CanvasNode, Vec2, NodeType, Connection, GenerationConfig, NodeData, CanvasPreset, PresetInput, KlingO1InputItem } from '../../types/pebblingTypes';
-import { CreativeIdea, DesktopItem, DesktopFolderItem, DesktopImageItem, DesktopVideoItem } from '../../types';
+import { CreativeIdea, DesktopItem, DesktopFolderItem, DesktopImageItem, DesktopVideoItem, WorkflowNode, WorkflowConnection, WorkflowInput, WorkflowNodeType } from '../../types';
 import FloatingInput from './FloatingInput';
 import CanvasNodeItem from './CanvasNode';
 import Sidebar from './Sidebar';
@@ -309,6 +309,24 @@ export interface BatchSavedOptions {
   isVideo?: boolean;
 }
 
+/** 画布节点类型中与创意库 WorkflowNode 兼容的子集 */
+const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = ['text', 'image', 'edit', 'video', 'llm', 'resize', 'relay', 'remove-bg', 'upscale'];
+
+function canvasNodeToWorkflowNode(n: CanvasNode): WorkflowNode {
+  const type = (WORKFLOW_NODE_TYPES.includes(n.type as WorkflowNodeType) ? n.type : 'relay') as WorkflowNodeType;
+  return {
+    id: n.id,
+    type,
+    title: n.title,
+    content: n.content ?? '',
+    x: n.x,
+    y: n.y,
+    width: n.width,
+    height: n.height,
+    data: n.data ? { prompt: n.data.prompt, systemInstruction: n.data.systemInstruction, settings: n.data.settings } : undefined,
+  };
+}
+
 interface PebblingCanvasProps {
   onImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void; // 回调同步到桌面（含画布ID用于联动；isVideo 用于 ComfyUI 视频 URL 正确保存）
   onBatchSaved?: (opts: BatchSavedOptions) => void; // 批量保存完成：创建桌面子文件夹并放入全部图片
@@ -320,6 +338,8 @@ interface PebblingCanvasProps {
   pendingImageToAdd?: { imageUrl: string; imageName?: string } | null; // 待添加的图片（从素材库添加）
   onPendingImageAdded?: () => void; // 图片添加完成后的回调
   saveRef?: React.MutableRefObject<(() => Promise<void>) | null>; // 暴露保存函数给父组件
+  /** 将画布流程保存到创意文本库（作为画布流程条目），便于在创意库中复用 */
+  onSaveWorkflowToCreativeLibrary?: (idea: Omit<CreativeIdea, 'id'>) => Promise<void>;
 }
 
 const PebblingCanvas: React.FC<PebblingCanvasProps> = ({ 
@@ -332,7 +352,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   isActive = true,
   pendingImageToAdd,
   onPendingImageAdded,
-  saveRef
+  saveRef,
+  onSaveWorkflowToCreativeLibrary,
 }) => {
   // --- 画布管理状态 ---
   const [currentCanvasId, setCurrentCanvasId] = useState<string | null>(null);
@@ -524,6 +545,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   
   // Copy/Paste Buffer
   const clipboardRef = useRef<CanvasNode[]>([]);
+
+  // 单击连线延迟删除的 timeout（双击时取消，保留“双击在中间插入节点”）
+  const connectionClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+      if (connectionClickTimeoutRef.current) clearTimeout(connectionClickTimeoutRef.current);
+  }, []);
 
   // Abort Controllers for cancelling operations
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -1406,6 +1433,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     const baseY = -canvasOffset.y / scale + 100;
     
     setHasUnsavedChanges(true);
+
+    // 画布流程保存时的日夜模式：应用到画布时同步全局主题
+    if (idea.isWorkflow && idea.workflowCanvasTheme) {
+      setTheme(idea.workflowCanvasTheme);
+    }
     
     if (idea.isWorkflow && idea.workflowNodes && idea.workflowConnections) {
       const offsetX = canvasOffset.x + 200;
@@ -1496,6 +1528,29 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     setScale(1);
   };
 
+  // 按 id 切断/删除单条连线（供单击连线和键盘 Delete 共用）
+  const removeConnectionById = useCallback((connectionId: string) => {
+      const connToDelete = connectionsRef.current.find(c => c.id === connectionId);
+      if (!connToDelete) return;
+      if (connToDelete.toPortKey) {
+          const targetNode = nodesRef.current.find(n => n.id === connToDelete.toNode);
+          if (targetNode?.data?.nodeInputs?.[connToDelete.toPortKey]) {
+              updateNode(connToDelete.toNode, {
+                  data: {
+                      ...targetNode.data,
+                      nodeInputs: {
+                          ...targetNode.data.nodeInputs,
+                          [connToDelete.toPortKey]: '' // 清空参数值
+                      }
+                  }
+              });
+          }
+      }
+      setConnections(prev => prev.filter(c => c.id !== connectionId));
+      if (selectedConnectionId === connectionId) setSelectedConnectionId(null);
+      setHasUnsavedChanges(true); // 标记未保存
+  }, [selectedConnectionId]);
+
   const deleteSelection = useCallback(() => {
       // 1. Delete Nodes
       if (selectedNodeIds.size > 0) {
@@ -1505,32 +1560,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setSelectedNodeIds(new Set<string>());
           setHasUnsavedChanges(true); // 标记未保存
       }
-      // 2. Delete Connection
+      // 2. Delete Connection（复用单条切断逻辑）
       if (selectedConnectionId) {
-          // 找到要删除的连接
-          const connToDelete = connectionsRef.current.find(c => c.id === selectedConnectionId);
-          
-          // 如果有 toPortKey，清除目标节点的参数值
-          if (connToDelete?.toPortKey) {
-              const targetNode = nodesRef.current.find(n => n.id === connToDelete.toNode);
-              if (targetNode?.data?.nodeInputs?.[connToDelete.toPortKey]) {
-                  updateNode(connToDelete.toNode, {
-                      data: {
-                          ...targetNode.data,
-                          nodeInputs: {
-                              ...targetNode.data.nodeInputs,
-                              [connToDelete.toPortKey]: '' // 清空参数值
-                          }
-                      }
-                  });
-              }
-          }
-          
-          setConnections(prev => prev.filter(c => c.id !== selectedConnectionId));
-          setSelectedConnectionId(null);
-          setHasUnsavedChanges(true); // 标记未保存
+          removeConnectionById(selectedConnectionId);
       }
-  }, [selectedNodeIds, selectedConnectionId]);
+  }, [selectedNodeIds, selectedConnectionId, removeConnectionById]);
 
   const handleCopy = useCallback(() => {
       if (selectedNodeIds.size === 0) return;
@@ -5865,7 +5899,27 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     const pathD = `M ${startX} ${startY} C ${ctrl1X} ${ctrl1Y}, ${ctrl2X} ${ctrl2Y}, ${endX} ${endY}`;
 
                     return (
-                        <g key={conn.id} onClick={() => setSelectedConnectionId(conn.id)} onDoubleClick={(e) => handleConnectionDoubleClick(conn, e)} className="pointer-events-auto cursor-pointer group">
+                        <g
+                            key={conn.id}
+                            className="pointer-events-auto cursor-pointer group"
+                            title="单击切断连线，双击在中间插入节点"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (connectionClickTimeoutRef.current) clearTimeout(connectionClickTimeoutRef.current);
+                                connectionClickTimeoutRef.current = setTimeout(() => {
+                                    connectionClickTimeoutRef.current = null;
+                                    removeConnectionById(conn.id);
+                                }, 250);
+                            }}
+                            onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                if (connectionClickTimeoutRef.current) {
+                                    clearTimeout(connectionClickTimeoutRef.current);
+                                    connectionClickTimeoutRef.current = null;
+                                }
+                                handleConnectionDoubleClick(conn, e);
+                            }}
+                        >
                              {/* 点击区域 */}
                              <path 
                                 d={pathD}
@@ -6153,6 +6207,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         const panelNode = nodes.find(n => n.id === imageGenPanelNodeId);
         if (!panelNode || (panelNode.type !== 'image' && panelNode.type !== 'preview')) return null;
         const pos = getImageGenPanelPosition(imageGenPanelNodeId);
+        const inputImages = resolveInputs(panelNode.id).images;
         return (
           <ImageGenPanel
             node={panelNode}
@@ -6164,6 +6219,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             onClose={() => setImageGenPanelNodeId(null)}
             isRunning={panelNode.status === 'running'}
             onCreateToolNode={handleCreateToolNode}
+            inputImages={inputImages}
           />
         );
       })()}

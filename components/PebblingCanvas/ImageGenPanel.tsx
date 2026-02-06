@@ -15,6 +15,8 @@ interface ImageGenPanelProps {
   isRunning: boolean;
   /** 工具箱回调：创建高清化/移除背景/扩展图片工具节点 */
   onCreateToolNode?: (sourceNodeId: string, toolType: NodeType, position: { x: number; y: number }) => void;
+  /** 多图输入时按顺序的图片 URL 列表，用于预览并显示顺序标签（参考可灵 O1） */
+  inputImages?: string[];
 }
 
 const ASPECT_RATIOS_ROW1 = ['Auto', '1:1', '3:4', '4:3', '9:16', '16:9'];
@@ -28,6 +30,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   onUpdateSettings,
   onClose,
   onCreateToolNode,
+  inputImages = [],
 }) => {
   const settings = node.data?.settings || {};
   const currentRatio = settings.aspectRatio || 'Auto';
@@ -52,9 +55,12 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     return () => document.removeEventListener('mousedown', handler, true);
   }, [onClose, isToolboxMode]);
 
-  // 面板尺寸根据模式不同（工具箱横排更宽更矮；配置面板只含比例+分辨率）
+  // 多图输入时展示预览+顺序标签（仅顺序，无名称与插入）
+  const hasMultiInput = inputImages.length > 1;
+
+  // 面板尺寸根据模式不同（工具箱横排更宽更矮；配置面板含比例+分辨率，多图时略高）
   const panelW = isToolboxMode ? 220 : 260;
-  const panelH = isToolboxMode ? 80 : 200;
+  const panelH = isToolboxMode ? 80 : (hasMultiInput ? 260 : 200);
 
   // Clamp position to viewport（面板在节点下方居中）
   const centeredX = position.x - panelW / 2;
@@ -159,6 +165,25 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
           <Icons.Close size={10} />
         </button>
       </div>
+
+      {/* 多图输入：按顺序的预览，右上角顺序标签（参考可灵 O1，仅顺序无名称与插入） */}
+      {!isToolboxMode && hasMultiInput && (
+        <div className="flex flex-col gap-1">
+          <span className={`text-[10px] font-semibold ${textMuted}`}>输入顺序</span>
+          <div className="flex gap-1 overflow-x-auto pb-0.5 max-h-14">
+            {inputImages.map((url, idx) => {
+              const displayUrl = url.startsWith('data:') || url.startsWith('http') ? url : (url.startsWith('/files/') ? `${typeof window !== 'undefined' ? window.location.origin : ''}${url}` : url);
+              return (
+                <div key={idx} className="w-10 h-10 rounded overflow-hidden shrink-0 bg-black/20 flex items-center justify-center relative">
+                  <img src={displayUrl} alt="" className="w-full h-full object-cover absolute inset-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const next = (e.target as HTMLImageElement).nextElementSibling as HTMLElement; if (next) next.classList.remove('hidden'); }} />
+                  <Icons.Image size={16} className="hidden text-zinc-500 shrink-0 relative z-0" />
+                  <span className="absolute top-0 right-0 min-w-[14px] h-[14px] flex items-center justify-center rounded-bl text-[10px] font-bold bg-blue-500 text-white leading-none" title={`第 ${idx + 1} 张`}>{idx + 1}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ===== 生成配置模式（画面比例 + 分辨率） ===== */}
           {/* Aspect Ratio */}
