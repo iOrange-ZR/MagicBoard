@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { CanvasNode } from '../../types/pebblingTypes';
+import React, { useEffect, useRef } from 'react';
+import { CanvasNode, NodeType } from '../../types/pebblingTypes';
 import { Icons } from './Icons';
 
 interface ImageGenPanelProps {
   node: CanvasNode;
-  /** Screen-space position for the panel (top-left corner) */
+  /** Screen-space position for the panel (center-x, top-y) */
   position: { x: number; y: number };
   isLightCanvas: boolean;
   onUpdateSettings: (nodeId: string, settings: { aspectRatio?: string; resolution?: string }) => void;
@@ -13,6 +13,8 @@ interface ImageGenPanelProps {
   onExecute: (nodeId: string) => void;
   onClose: () => void;
   isRunning: boolean;
+  /** 工具箱回调：创建高清化/移除背景/扩展图片工具节点 */
+  onCreateToolNode?: (sourceNodeId: string, toolType: NodeType, position: { x: number; y: number }) => void;
 }
 
 const ASPECT_RATIOS_ROW1 = ['Auto', '1:1', '3:4', '4:3', '9:16', '16:9'];
@@ -24,21 +26,17 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   position,
   isLightCanvas,
   onUpdateSettings,
-  onUpdatePrompt,
-  onExecute,
   onClose,
-  isRunning,
+  onCreateToolNode,
 }) => {
   const settings = node.data?.settings || {};
   const currentRatio = settings.aspectRatio || 'Auto';
   const currentResolution = settings.resolution || '2K';
-  const [localPrompt, setLocalPrompt] = useState(node.data?.prompt || '');
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Sync localPrompt when node changes
-  useEffect(() => {
-    setLocalPrompt(node.data?.prompt || '');
-  }, [node.id, node.data?.prompt]);
+  // 判断节点是否已有图片内容（非空、非 prompt: 前缀）
+  const hasImage = !!(node.content && !node.content.startsWith('prompt:'));
+  const isToolboxMode = hasImage && !!onCreateToolNode;
 
   // Close on outside click - 使用延迟检测避免与节点选择冲突
   useEffect(() => {
@@ -47,29 +45,26 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         // 不要在点击画布节点时关闭（由 handleNodeDragStart 管理面板状态）
         const target = e.target as HTMLElement;
         if (target.closest?.('[data-node-id]')) return;
-        // Save prompt before closing
-        if (localPrompt !== (node.data?.prompt || '')) {
-          onUpdatePrompt(node.id, localPrompt);
-        }
         onClose();
       }
     };
     document.addEventListener('mousedown', handler, true);
     return () => document.removeEventListener('mousedown', handler, true);
-  }, [onClose, localPrompt, node.id, node.data?.prompt, onUpdatePrompt]);
+  }, [onClose, isToolboxMode]);
 
-  // Clamp position to viewport
-  const panelW = 260;
-  const panelH = 340;
-  const clampedX = Math.min(position.x, window.innerWidth - panelW - 16);
+  // 面板尺寸根据模式不同（工具箱横排更宽更矮；配置面板只含比例+分辨率）
+  const panelW = isToolboxMode ? 220 : 260;
+  const panelH = isToolboxMode ? 80 : 200;
+
+  // Clamp position to viewport（面板在节点下方居中）
+  const centeredX = position.x - panelW / 2;
+  const clampedX = Math.max(16, Math.min(centeredX, window.innerWidth - panelW - 16));
   const clampedY = Math.max(60, Math.min(position.y, window.innerHeight - panelH - 16));
 
   const bg = isLightCanvas ? 'bg-white/95' : 'bg-[#1c1c1e]/95';
   const border = isLightCanvas ? 'border-gray-200' : 'border-white/10';
   const text = isLightCanvas ? 'text-gray-900' : 'text-white';
   const textMuted = isLightCanvas ? 'text-gray-500' : 'text-zinc-500';
-  const inputBg = isLightCanvas ? 'bg-gray-100 border-gray-200 text-gray-800 placeholder-gray-400' : 'bg-black/40 border-white/10 text-white placeholder-zinc-600';
-
   const handleSetRatio = (ratio: string) => {
     onUpdateSettings(node.id, { ...settings, aspectRatio: ratio });
   };
@@ -78,24 +73,71 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     onUpdateSettings(node.id, { ...settings, resolution: res });
   };
 
-  const handlePromptBlur = () => {
-    if (localPrompt !== (node.data?.prompt || '')) {
-      onUpdatePrompt(node.id, localPrompt);
+  const handleToolClick = (toolType: NodeType) => {
+    if (onCreateToolNode) {
+      onCreateToolNode(node.id, toolType, { x: node.x + node.width + 100, y: node.y });
+      onClose();
     }
   };
 
-  const handleExecute = () => {
-    // Save prompt first
-    if (localPrompt !== (node.data?.prompt || '')) {
-      onUpdatePrompt(node.id, localPrompt);
-    }
-    onExecute(node.id);
-  };
+  const toolBtnClass = isLightCanvas
+    ? 'bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700'
+    : 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200';
+
+  if (isToolboxMode) {
+    // ===== 横向工具箱模式 =====
+    return (
+      <div
+        ref={panelRef}
+        className={`fixed z-[60] ${bg} backdrop-blur-xl border ${border} rounded-2xl shadow-2xl p-2 flex items-center gap-1 animate-in fade-in slide-in-from-top-2 duration-200`}
+        style={{
+          left: clampedX,
+          top: clampedY,
+          pointerEvents: 'auto',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all ${toolBtnClass} active:scale-[0.95]`}
+          onClick={() => handleToolClick('upscale')}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="高清化 - 提升图片分辨率"
+        >
+          <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
+            <Icons.Sparkles size={16} className="text-blue-400" />
+          </div>
+          <span className={`text-[9px] font-semibold ${text}`}>高清化</span>
+        </button>
+        <button
+          className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all ${toolBtnClass} active:scale-[0.95]`}
+          onClick={() => handleToolClick('remove-bg')}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="移除背景 - 提取图片主体"
+        >
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+            <Icons.Scissors size={16} className="text-emerald-400" />
+          </div>
+          <span className={`text-[9px] font-semibold ${text}`}>抠图</span>
+        </button>
+        <button
+          className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all ${toolBtnClass} active:scale-[0.95]`}
+          onClick={() => handleToolClick('edit')}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="扩展图片 - AI 向外扩展画面"
+        >
+          <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center">
+            <Icons.Expand size={16} className="text-purple-400" />
+          </div>
+          <span className={`text-[9px] font-semibold ${text}`}>扩图</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
       ref={panelRef}
-      className={`fixed z-[60] ${bg} backdrop-blur-xl border ${border} rounded-2xl shadow-2xl p-3 flex flex-col gap-2.5 animate-in fade-in slide-in-from-left-2 duration-200`}
+      className={`fixed z-[60] ${bg} backdrop-blur-xl border ${border} rounded-2xl shadow-2xl p-3 flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-2 duration-200`}
       style={{
         left: clampedX,
         top: clampedY,
@@ -118,118 +160,75 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         </button>
       </div>
 
-      {/* Prompt */}
-      <div>
-        <div className={`text-[10px] font-semibold mb-1 ${textMuted}`}>提示词</div>
-        <textarea
-          value={localPrompt}
-          onChange={(e) => setLocalPrompt(e.target.value)}
-          onBlur={handlePromptBlur}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              handleExecute();
-            }
-          }}
-          placeholder="描述想生成的画面..."
-          className={`w-full rounded-lg p-2 text-[11px] outline-none resize-none border transition-colors ${inputBg} focus:border-blue-500/50`}
-          rows={3}
-        />
-      </div>
+      {/* ===== 生成配置模式（画面比例 + 分辨率） ===== */}
+          {/* Aspect Ratio */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className={`text-[10px] font-semibold ${textMuted}`}>画面比例</span>
+              <span className="text-[10px] font-mono font-semibold text-blue-400">{currentRatio}</span>
+            </div>
+            <div className="grid grid-cols-6 gap-0.5">
+              {ASPECT_RATIOS_ROW1.map(ratio => (
+                <button
+                  key={ratio}
+                  onClick={() => handleSetRatio(ratio)}
+                  className={`py-1 text-[9px] font-semibold rounded-md transition-all ${
+                    currentRatio === ratio
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : isLightCanvas
+                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        : 'bg-white/5 text-zinc-500 hover:bg-white/10'
+                  }`}
+                >
+                  {ratio}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-5 gap-0.5 mt-0.5">
+              {ASPECT_RATIOS_ROW2.map(ratio => (
+                <button
+                  key={ratio}
+                  onClick={() => handleSetRatio(ratio)}
+                  className={`py-1 text-[9px] font-semibold rounded-md transition-all ${
+                    currentRatio === ratio
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : isLightCanvas
+                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        : 'bg-white/5 text-zinc-500 hover:bg-white/10'
+                  }`}
+                >
+                  {ratio}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {/* Aspect Ratio */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-[10px] font-semibold ${textMuted}`}>画面比例</span>
-          <span className="text-[10px] font-mono font-semibold text-blue-400">{currentRatio}</span>
-        </div>
-        <div className="grid grid-cols-6 gap-0.5">
-          {ASPECT_RATIOS_ROW1.map(ratio => (
-            <button
-              key={ratio}
-              onClick={() => handleSetRatio(ratio)}
-              className={`py-1 text-[9px] font-semibold rounded-md transition-all ${
-                currentRatio === ratio
-                  ? 'bg-blue-500 text-white shadow-sm'
-                  : isLightCanvas
-                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    : 'bg-white/5 text-zinc-500 hover:bg-white/10'
-              }`}
-            >
-              {ratio}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-5 gap-0.5 mt-0.5">
-          {ASPECT_RATIOS_ROW2.map(ratio => (
-            <button
-              key={ratio}
-              onClick={() => handleSetRatio(ratio)}
-              className={`py-1 text-[9px] font-semibold rounded-md transition-all ${
-                currentRatio === ratio
-                  ? 'bg-blue-500 text-white shadow-sm'
-                  : isLightCanvas
-                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    : 'bg-white/5 text-zinc-500 hover:bg-white/10'
-              }`}
-            >
-              {ratio}
-            </button>
-          ))}
-        </div>
-      </div>
+          {/* Resolution */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className={`text-[10px] font-semibold ${textMuted}`}>分辨率</span>
+              <span className="text-[10px] font-mono font-semibold text-blue-400">{currentResolution}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-0.5">
+              {RESOLUTIONS.map(res => (
+                <button
+                  key={res}
+                  onClick={() => handleSetResolution(res)}
+                  className={`py-1 text-[10px] font-semibold rounded-md transition-all ${
+                    currentResolution === res
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : isLightCanvas
+                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        : 'bg-white/5 text-zinc-500 hover:bg-white/10'
+                  }`}
+                >
+                  {res}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {/* Resolution */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-[10px] font-semibold ${textMuted}`}>分辨率</span>
-          <span className="text-[10px] font-mono font-semibold text-blue-400">{currentResolution}</span>
-        </div>
-        <div className="grid grid-cols-3 gap-0.5">
-          {RESOLUTIONS.map(res => (
-            <button
-              key={res}
-              onClick={() => handleSetResolution(res)}
-              className={`py-1 text-[10px] font-semibold rounded-md transition-all ${
-                currentResolution === res
-                  ? 'bg-blue-500 text-white shadow-sm'
-                  : isLightCanvas
-                    ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    : 'bg-white/5 text-zinc-500 hover:bg-white/10'
-              }`}
-            >
-              {res}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Execute Button */}
-      <button
-        onClick={handleExecute}
-        disabled={isRunning}
-        className={`w-full py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-          isRunning
-            ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
-            : 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
-        }`}
-      >
-        {isRunning ? (
-          <>
-            <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            生成中...
-          </>
-        ) : (
-          <>
-            <Icons.Sparkles size={14} />
-            生成图片
-          </>
-        )}
-      </button>
-
-      {/* Hint */}
-      <div className={`text-[9px] text-center ${textMuted}`}>
-        Ctrl+Enter 快速生成
-      </div>
+      {/* 提示：通过节点上方的 Run 按钮执行生成 */}
     </div>
   );
 };

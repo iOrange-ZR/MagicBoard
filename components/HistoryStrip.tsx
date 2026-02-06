@@ -252,13 +252,6 @@ export const HistoryStrip: React.FC<HistoryStripProps> = ({
                   }`}></span>
                 </div>
                 
-                {/* 扣鹅卵石数显示 */}
-                {item.coinsDeducted && (
-                  <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1.5 py-0.5 bg-black/60 backdrop-blur-sm rounded text-[9px] text-blue-400 font-medium">
-                    <span>🪨</span>{item.coinsDeducted}
-                  </div>
-                )}
-                
                 {/* 删除按钮 */}
                 <button
                   onClick={(e) => {

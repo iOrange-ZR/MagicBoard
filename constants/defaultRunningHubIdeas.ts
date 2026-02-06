@@ -12,7 +12,6 @@ export const DEFAULT_RUNNINGHUB_IDEAS: CreativeIdea[] = [
         prompt: '上传原图和参考光线图，AI 将根据参考图调整原图的光线效果，让你的照片拥有完美的光影',
         imageUrl: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=400&h=300&fit=crop',
         isRunningHub: true,
-        cost: 20,
         order: 999001,
         suggestedAspectRatio: 'Auto',
         suggestedResolution: '2K',

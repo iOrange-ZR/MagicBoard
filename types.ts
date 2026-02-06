@@ -3,8 +3,6 @@ export interface GeneratedContent {
   text: string | null;
   imageUrl: string | null;
   originalFiles?: File[]; // 保存生成时使用的所有原始图片，用于重新生成（支持多图）
-  coinsDeducted?: number; // 本次扣除的 Pebbling 鹅卵石
-  coinsRemaining?: number; // 扣除后的余额
 }
 
 export enum ApiStatus {
@@ -74,7 +72,6 @@ export interface CreativeIdea {
   bpFields?: BPField[]; // Renamed from bpVariables to support generic fields
   runningHubConfig?: RunningHubConfig; // 新增：RunningHub 配置
   order?: number;
-  cost?: number; // 使用此创意库生成图片需要扣除的 Pebbling 鹅卵石数量 🪨
   createdAt?: string; // 创建时间
 
   // 画布工作流模式（节点图谱）
@@ -96,7 +93,7 @@ export interface CreativeIdea {
 }
 
 // 工作流节点类型
-export type WorkflowNodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale';
+export type WorkflowNodeType = 'text' | 'image' | 'edit' | 'video' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale';
 
 // 工作流节点
 export interface WorkflowNode {
@@ -282,9 +279,8 @@ export interface GenerationHistory {
   // 创意库相关信息（用于重新生成时恢复）
   creativeTemplateId?: number; // 使用的创意库模板 ID
   creativeTemplateType?: 'smart' | 'smartPlus' | 'bp' | 'none'; // 创意库类型
-  bpInputs?: Record<string, string>; // BP 模式的输入值
+  bpInputs?: Record<string, string>; // 变量模式的输入值
   smartPlusOverrides?: SmartPlusConfig; // SmartPlus 模式的配置
-  coinsDeducted?: number; // 扣除的 Pebbling 鹅卵石数量
 }
 
 // 价格配置

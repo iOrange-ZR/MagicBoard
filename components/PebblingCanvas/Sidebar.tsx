@@ -64,26 +64,26 @@ const Sidebar: React.FC<SidebarProps> = ({
   const btnHoverText = isLight ? 'hover:text-gray-900' : 'hover:text-white';
   const labelText = isLight ? 'text-gray-500' : 'text-zinc-600';
 
-  // Default Presets
+  // 默认预设
   const defaultPresets = [
       {
           id: 'p1',
-          title: "Vision: Describe Image",
-          description: "Reverse engineer an image into a prompt.",
+          title: "视觉：描述图片",
+          description: "将图片反向解析为提示词。",
           type: 'llm' as NodeType,
           data: { systemInstruction: "You are an expert computer vision assistant. Describe the input image in extreme detail, focusing on style, lighting, composition, and subjects." }
       },
       {
           id: 'p2',
-          title: "Text Refiner",
-          description: "Rewrite text to be professional and concise.",
+          title: "文本润色",
+          description: "将文本改写得更专业、更简洁。",
           type: 'llm' as NodeType,
           data: { systemInstruction: "You are a professional editor. Rewrite the following user text to be more concise, professional, and impactful. Maintain the original meaning." }
       },
       {
           id: 'p3',
-          title: "Story Expander",
-          description: "Turn a simple sentence into a paragraph.",
+          title: "故事扩写",
+          description: "将一句话扩展为生动的段落。",
           type: 'llm' as NodeType,
           data: { systemInstruction: "You are a creative writer. Take the user's short input and expand it into a vivid, descriptive paragraph suitable for a novel." }
       }
@@ -166,31 +166,22 @@ const Sidebar: React.FC<SidebarProps> = ({
             }}
         >
             
-            {/* Media Group */}
+            {/* 媒体 */}
             <div className="flex flex-col gap-1.5">
-                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>Media</span>
-                <DraggableButton type="image" icon={<Icons.Image />} label="Image" onDragStart={onDragStart} onClick={() => onAdd('image')} isLight={isLight} />
-                <DraggableButton type="text" icon={<Icons.Type />} label="Text" onDragStart={onDragStart} onClick={() => onAdd('text')} isLight={isLight} />
-                <DraggableButton type="video" icon={<Icons.Video />} label="Video" onDragStart={onDragStart} onClick={() => onAdd('video')} isLight={isLight} />
+                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>媒体</span>
+                <DraggableButton type="image" icon={<Icons.Image />} label="图片" onDragStart={onDragStart} onClick={() => onAdd('image')} isLight={isLight} />
+                <DraggableButton type="text" icon={<Icons.Type />} label="文本" onDragStart={onDragStart} onClick={() => onAdd('text')} isLight={isLight} />
+                <DraggableButton type="video" icon={<Icons.Video />} label="视频" onDragStart={onDragStart} onClick={() => onAdd('video')} isLight={isLight} />
             </div>
             
             <div className={`w-8 h-px ${isLight ? 'bg-gray-200' : 'bg-white/10'} my-1`} />
             
-            {/* Logic Group */}
+            {/* 逻辑 */}
             <div className="flex flex-col gap-1.5">
-                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>Logic</span>
-                <DraggableButton type="llm" icon={<Icons.Sparkles />} label="LLM / Vision" onDragStart={onDragStart} onClick={() => onAdd('llm')} isLight={isLight} />
-                <DraggableButton type="idea" icon={<Icons.Magic />} label="Idea Gen" onDragStart={onDragStart} onClick={() => onAdd('idea')} isLight={isLight} />
-                <DraggableButton type="relay" icon={<Icons.Relay />} label="Relay" onDragStart={onDragStart} onClick={() => onAdd('relay')} isLight={isLight} />
-                <DraggableButton type="edit" icon={<BananaIcon />} label="Magic" onDragStart={onDragStart} onClick={() => onAdd('edit')} isLight={isLight} />
-                <DraggableButton 
-                    type="runninghub" 
-                    icon={<span className="text-[10px] font-black">R</span>} 
-                    label="RunningHub" 
-                    onDragStart={onDragStart} 
-                    onClick={() => onAdd('runninghub')} 
-                    isLight={isLight}
-                />
+                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>逻辑</span>
+                <DraggableButton type="llm" icon={<Icons.Sparkles />} label="LLM / 视觉" onDragStart={onDragStart} onClick={() => onAdd('llm')} isLight={isLight} />
+                <DraggableButton type="relay" icon={<Icons.Relay />} label="中继" onDragStart={onDragStart} onClick={() => onAdd('relay')} isLight={isLight} />
+                <DraggableButton type="edit" icon={<BananaIcon />} label="魔法扩图" onDragStart={onDragStart} onClick={() => onAdd('edit')} isLight={isLight} />
                 <DraggableButton 
                     type="drawing-board" 
                     icon={<Icons.Palette />} 
@@ -203,9 +194,17 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             <div className={`w-8 h-px ${isLight ? 'bg-gray-200' : 'bg-white/10'} my-1`} />
 
-            {/* ComfyUI 分组：本地/局域网 ComfyUI */}
+            {/* 第三方工具 */}
             <div className="flex flex-col gap-1.5">
-                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>ComfyUI</span>
+                <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>第三方</span>
+                <DraggableButton 
+                    type="runninghub" 
+                    icon={<span className="text-[10px] font-black">R</span>} 
+                    label="RunningHub" 
+                    onDragStart={onDragStart} 
+                    onClick={() => onAdd('runninghub')} 
+                    isLight={isLight}
+                />
                 <DraggableButton 
                     type="comfyui" 
                     icon={<Icons.Workflow size={16} />} 

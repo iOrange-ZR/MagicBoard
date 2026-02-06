@@ -3,6 +3,24 @@
  * 用于统一处理各种格式的图片URL
  */
 
+/** 本地 /files/ 资源的基础 URL，用于 img/video src 在 Electron 或非代理环境下正确加载 */
+const FILES_BASE =
+  typeof window !== 'undefined' &&
+  window.location.hostname === 'localhost' &&
+  window.location.port === '8765'
+    ? ''
+    : 'http://localhost:8765';
+
+/**
+ * 将 /files/ 路径转为可加载的绝对 URL（用于桌面/预览等处的 img、video 标签）
+ */
+export const toAbsoluteFilesUrl = (url: string | undefined | null): string => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+  if (url.startsWith('/files/')) return FILES_BASE + url;
+  return url;
+};
+
 /**
  * 统一处理 imageUrl，兼容多种格式：
  * 1. 文件路径格式: /files/output/xxx.jpg
@@ -110,12 +128,16 @@ export const getThumbnailUrl = (originalUrl: string | undefined | null): string 
     return originalUrl;
   }
   
-  // 解析路径: /files/output/filename.png
+  // 解析路径: /files/output/filename.png 或 /files/output/subfolder/filename.png
   const parts = originalUrl.split('/');
   if (parts.length < 4) return originalUrl;
   
   const dirName = parts[2]; // output, input, creative_images, creative
-  const filename = parts[3];
+  // 文件名是最后一个部分（支持子目录如 /files/output/batch_xxx/1.png）
+  const filename = parts[parts.length - 1];
+  // 子目录部分（如果有的话），用于生成唯一缩略图名
+  const subParts = parts.slice(3, parts.length - 1); // 子目录名（可能为空）
+  const subPrefix = subParts.length > 0 ? subParts.join('_') + '_' : '';
   
   // 获取不带扩展名的文件名
   const lastDotIndex = filename.lastIndexOf('.');
@@ -124,7 +146,7 @@ export const getThumbnailUrl = (originalUrl: string | undefined | null): string 
   // 统一目录名称 (creative -> creative_images)
   const normalizedDirName = dirName === 'creative' ? 'creative_images' : dirName;
   
-  return `/files/thumbnails/${normalizedDirName}_${nameWithoutExt}_thumb.jpg`;
+  return `/files/thumbnails/${normalizedDirName}_${subPrefix}${nameWithoutExt}_thumb.jpg`;
 };
 
 /**

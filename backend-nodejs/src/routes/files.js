@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const config = require('../config');
 const FileHandler = require('../utils/fileHandler');
@@ -56,6 +57,68 @@ router.post('/save-video', async (req, res) => {
   }
   
   res.json(result);
+});
+
+// 单张保存到 output 子文件夹（不生成缩略图，避免不支持的图片格式导致报错）
+router.post('/save-output-to-folder', async (req, res) => {
+  const { imageData, filename, subFolder } = req.body;
+  if (!imageData || !subFolder) {
+    return res.status(400).json({ success: false, error: '缺少图片数据或子文件夹名称' });
+  }
+  const safeFolderName = subFolder.replace(/[<>:"\/\\|?*]/g, '_').trim() || `batch_${Date.now()}`;
+  const batchDir = path.join(config.OUTPUT_DIR, safeFolderName);
+  FileHandler.ensureDir(batchDir);
+  const result = FileHandler.saveImage(imageData, batchDir, filename || null);
+  if (result.success && result.data) {
+    result.data.url = `/files/output/${safeFolderName}/${result.data.filename}`;
+  }
+  res.json(result);
+});
+
+// 单个视频保存到 output 子文件夹（不生成缩略图）
+router.post('/save-video-to-folder', async (req, res) => {
+  const { videoData, filename, subFolder } = req.body;
+  if (!videoData || !subFolder) {
+    return res.status(400).json({ success: false, error: '缺少视频数据或子文件夹名称' });
+  }
+  const safeFolderName = subFolder.replace(/[<>:"\/\\|?*]/g, '_').trim() || `batch_${Date.now()}`;
+  const batchDir = path.join(config.OUTPUT_DIR, safeFolderName);
+  FileHandler.ensureDir(batchDir);
+  const result = FileHandler.saveVideo(videoData, batchDir, filename || null);
+  if (result.success && result.data) {
+    result.data.url = `/files/output/${safeFolderName}/${result.data.filename}`;
+  }
+  res.json(result);
+});
+
+// 将 output 根目录下的文件移入子文件夹（先按单图保存再调用此接口；图片会同步重命名缩略图以便展示）
+router.post('/move-output-to-folder', (req, res) => {
+  const { filename, subFolder } = req.body;
+  if (!filename || !subFolder) {
+    return res.status(400).json({ success: false, error: '缺少 filename 或 subFolder' });
+  }
+  const safeFolderName = subFolder.replace(/[<>:"\/\\|?*]/g, '_').trim() || `batch_${Date.now()}`;
+  const srcPath = path.join(config.OUTPUT_DIR, filename);
+  const batchDir = path.join(config.OUTPUT_DIR, safeFolderName);
+  const destPath = path.join(batchDir, filename);
+  const safePath = PathHelper.safePath(config.OUTPUT_DIR, filename);
+  if (!safePath || !fs.existsSync(srcPath)) {
+    return res.status(400).json({ success: false, error: '文件不存在或路径非法' });
+  }
+  try {
+    FileHandler.ensureDir(batchDir);
+    fs.renameSync(srcPath, destPath);
+    const nameWithoutExt = path.parse(filename).name;
+    const thumbOld = path.join(config.THUMBNAILS_DIR, `output_${nameWithoutExt}_thumb.jpg`);
+    const thumbNew = path.join(config.THUMBNAILS_DIR, `output_${safeFolderName}_${nameWithoutExt}_thumb.jpg`);
+    if (fs.existsSync(thumbOld)) {
+      fs.renameSync(thumbOld, thumbNew);
+    }
+    res.json({ success: true, data: { url: `/files/output/${safeFolderName}/${filename}` } });
+  } catch (err) {
+    console.error('[move-output-to-folder]', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // 保存图片到input目录（并生成缩略图）
@@ -137,6 +200,75 @@ router.delete('/input/:filename', (req, res) => {
     res.json({ success: true, message: '文件已删除' });
   } else {
     res.status(404).json({ success: false, error: '文件不存在' });
+  }
+});
+
+// 批量保存图片/视频到output子文件夹
+router.post('/save-batch', async (req, res) => {
+  const { items, subFolder, coverIndex } = req.body;
+  
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ success: false, error: '缺少批量数据' });
+  }
+  if (!subFolder) {
+    return res.status(400).json({ success: false, error: '缺少子文件夹名称' });
+  }
+  
+  // 安全处理文件夹名
+  const safeFolderName = subFolder.replace(/[<>:"\/\\|?*]/g, '_').trim() || `batch_${Date.now()}`;
+  const batchDir = path.join(config.OUTPUT_DIR, safeFolderName);
+  
+  try {
+    // 确保子文件夹存在
+    FileHandler.ensureDir(batchDir);
+    
+    const results = [];
+    const urlPrefix = `/files/output/${safeFolderName}`;
+    
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.data) {
+        results.push({ index: i, success: false, error: '缺少数据' });
+        continue;
+      }
+      
+      // 判断是视频还是图片
+      const isVideo = item.isVideo || item.data.startsWith('data:video');
+      let saveResult;
+      
+      if (isVideo) {
+        saveResult = FileHandler.saveVideo(item.data, batchDir, item.filename || null);
+      } else {
+        saveResult = FileHandler.saveImage(item.data, batchDir, item.filename || null);
+      }
+      
+      if (saveResult.success) {
+        // 修正URL为子文件夹路径（批量保存不生成缩略图，避免部分格式导致「Input file contains unsupported image format」）
+        saveResult.data.url = `${urlPrefix}/${saveResult.data.filename}`;
+        results.push({ index: i, success: true, data: saveResult.data });
+      } else {
+        results.push({ index: i, success: false, error: saveResult.error });
+      }
+    }
+    
+    // 统计
+    const successCount = results.filter(r => r.success).length;
+    console.log(`[BatchSave] ${safeFolderName}: ${successCount}/${items.length} 保存成功`);
+    
+    res.json({
+      success: true,
+      data: {
+        folderName: safeFolderName,
+        folderUrl: urlPrefix,
+        results,
+        successCount,
+        totalCount: items.length,
+        coverIndex: typeof coverIndex === 'number' ? coverIndex : 0,
+      }
+    });
+  } catch (error) {
+    console.error('[BatchSave] 批量保存失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -286,14 +418,15 @@ router.post('/rebuild-thumbnail', async (req, res) => {
   }
 
   try {
-    // 解析路径: /files/output/filename.png
+    // 解析路径: /files/output/filename.png 或 /files/output/subfolder/filename.png
     const parts = imageUrl.split('/');
     if (parts.length < 4) {
       return res.status(400).json({ success: false, error: '无效的图片路径格式' });
     }
 
     const dirName = parts[2]; // output, input, creative_images
-    const filename = parts[3];
+    const filename = parts[parts.length - 1]; // 最后一个部分是文件名
+    const subParts = parts.slice(3, parts.length - 1); // 子目录部分（可能为空）
     
     // 确定源目录
     let sourceDir;
@@ -304,7 +437,10 @@ router.post('/rebuild-thumbnail', async (req, res) => {
       return res.status(400).json({ success: false, error: '不支持的目录' });
     }
 
-    const sourcePath = path.join(sourceDir, filename);
+    // 拼接子目录路径
+    const sourcePath = subParts.length > 0
+      ? path.join(sourceDir, ...subParts, filename)
+      : path.join(sourceDir, filename);
     
     // 检查原图是否存在
     const fs = require('fs');
@@ -312,9 +448,10 @@ router.post('/rebuild-thumbnail', async (req, res) => {
       return res.json({ success: false, error: '原图不存在' });
     }
 
-    // 生成缩略图
+    // 生成缩略图（子目录前缀用于唯一命名）
     const normalizedDirName = dirName === 'creative' ? 'creative_images' : dirName;
-    const result = await ThumbnailGenerator.generate(sourcePath, normalizedDirName);
+    const subPrefix = subParts.length > 0 ? subParts.join('_') + '_' : '';
+    const result = await ThumbnailGenerator.generate(sourcePath, normalizedDirName, subPrefix);
     
     if (result.success) {
       console.log(`[Thumbnail] 重建缩略图成功: ${filename}`);

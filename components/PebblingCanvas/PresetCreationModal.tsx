@@ -23,8 +23,8 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
     const found: PresetInput[] = [];
     
     selectedNodes.forEach(node => {
-        // 1. Text Content (for Text/Idea nodes)
-        if (['text', 'idea'].includes(node.type) && node.content) {
+        // 1. Text Content (for Text nodes)
+        if (node.type === 'text' && node.content) {
             found.push({
                 nodeId: node.id,
                 field: 'content',
@@ -86,7 +86,7 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
         {/* Header */}
         <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                <Icons.Layers size={16} className="text-purple-400"/> Save to Creative Library
+                <Icons.Layers size={16} className="text-purple-400"/> 保存为画布流程
             </h2>
             <button onClick={onCancel} className="text-zinc-500 hover:text-white"><Icons.Close size={16}/></button>
         </div>
@@ -97,21 +97,21 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
             {/* Metadata */}
             <div className="space-y-3">
                 <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500">Preset Name</label>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500">流程名称</label>
                     <input 
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
-                        placeholder="e.g., Character Generator"
+                        placeholder="例如：角色生成器"
                         className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-purple-500/50"
                         autoFocus
                     />
                 </div>
                 <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500">Description</label>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500">描述</label>
                     <textarea 
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        placeholder="What does this workflow do?"
+                        placeholder="这个流程做什么？"
                         className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-xs text-zinc-300 outline-none focus:border-purple-500/50 resize-none h-20"
                     />
                 </div>
@@ -122,13 +122,13 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
             {/* Input Configuration */}
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500">Define Input Conditions</label>
-                    <span className="text-[10px] text-zinc-600">{potentialInputs.length} potential inputs found</span>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500">定义输入参数</label>
+                    <span className="text-[10px] text-zinc-600">找到 {potentialInputs.length} 个可配置输入</span>
                 </div>
                 
                 {potentialInputs.length === 0 ? (
                     <div className="p-4 rounded-xl border border-dashed border-white/10 text-center text-xs text-zinc-600 italic">
-                        No configurable text or prompts found in selection.
+                        所选节点中未找到可配置的文本或提示词。
                     </div>
                 ) : (
                     <div className="space-y-2">
@@ -150,14 +150,14 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
                                                 value={input.label}
                                                 onChange={(e) => handleLabelChange(i, e.target.value)}
                                                 className="w-full bg-transparent border-b border-white/20 pb-0.5 text-sm font-bold text-white outline-none focus:border-purple-400 placeholder-zinc-500"
-                                                placeholder="Input Label"
+                                                placeholder="输入标签"
                                             />
                                         ) : (
                                             <div className="text-sm font-medium text-zinc-400">{input.label}</div>
                                         )}
                                         
                                         <div className="text-[10px] text-zinc-500 font-mono truncate max-w-[300px]">
-                                            Original: "{input.defaultValue.substring(0, 50)}..."
+                                            原始值: "{input.defaultValue.substring(0, 50)}..."
                                         </div>
                                     </div>
                                 </div>
@@ -171,14 +171,14 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
         {/* Footer */}
         <div className="p-4 border-t border-white/10 flex justify-end gap-2 bg-white/5">
             <button onClick={onCancel} className="px-4 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors">
-                Cancel
+                取消
             </button>
             <button 
                 onClick={handleSave}
                 disabled={!title.trim()}
                 className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-900/20 transition-all"
             >
-                Save to Library
+                保存到创意库
             </button>
         </div>
       </div>

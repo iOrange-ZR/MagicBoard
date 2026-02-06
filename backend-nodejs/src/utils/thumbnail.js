@@ -12,9 +12,10 @@ class ThumbnailGenerator {
    * 生成缩略图
    * @param {string} sourcePath - 原图路径
    * @param {string} sourceDir - 原图所在目录名称（output/input/creative_images）
+   * @param {string} subPrefix - 可选的子目录前缀（用于子文件夹内图片的唯一命名，如 "batch_xxx_"）
    * @returns {Promise<{success: boolean, thumbnailUrl?: string, error?: string}>}
    */
-  static async generate(sourcePath, sourceDir) {
+  static async generate(sourcePath, sourceDir, subPrefix = '') {
     try {
       // 确保缩略图目录存在
       if (!fs.existsSync(config.THUMBNAILS_DIR)) {
@@ -26,7 +27,7 @@ class ThumbnailGenerator {
       const nameWithoutExt = path.parse(filename).name;
       
       // 缩略图使用 jpg 格式（压缩率更高）
-      const thumbnailFilename = `${sourceDir}_${nameWithoutExt}_thumb.jpg`;
+      const thumbnailFilename = `${sourceDir}_${subPrefix}${nameWithoutExt}_thumb.jpg`;
       const thumbnailPath = path.join(config.THUMBNAILS_DIR, thumbnailFilename);
 
       // 使用 sharp 生成缩略图
@@ -128,7 +129,7 @@ class ThumbnailGenerator {
 
   /**
    * 获取缩略图URL
-   * @param {string} originalUrl - 原图URL (如 /files/output/xxx.png)
+   * @param {string} originalUrl - 原图URL (如 /files/output/xxx.png 或 /files/output/subfolder/xxx.png)
    * @returns {string} 缩略图URL
    */
   static getThumbnailUrl(originalUrl) {
@@ -136,15 +137,17 @@ class ThumbnailGenerator {
       return originalUrl;
     }
 
-    // 解析原图路径: /files/output/filename.png
+    // 解析原图路径: /files/output/filename.png 或 /files/output/subfolder/filename.png
     const parts = originalUrl.split('/');
     if (parts.length < 4) return originalUrl;
 
     const dirName = parts[2]; // output, input, creative_images
-    const filename = parts[3];
+    const filename = parts[parts.length - 1]; // 最后一个部分是文件名
+    const subParts = parts.slice(3, parts.length - 1); // 子目录部分
+    const subPrefix = subParts.length > 0 ? subParts.join('_') + '_' : '';
     const nameWithoutExt = path.parse(filename).name;
 
-    return `/files/thumbnails/${dirName}_${nameWithoutExt}_thumb.jpg`;
+    return `/files/thumbnails/${dirName}_${subPrefix}${nameWithoutExt}_thumb.jpg`;
   }
 }
 

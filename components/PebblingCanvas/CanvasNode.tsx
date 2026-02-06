@@ -21,6 +21,9 @@ const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14
   </svg>
 );
 
+/** 移除背景节点默认提示词（与后端一致，用于节点上展示） */
+const REMOVE_BG_DEFAULT_PROMPT = 'Remove the background, keep subject on transparent or white background';
+
 /** ComfyUI 单参数输入：IMAGE 类型显示上传/创意库选择，其余为文本/数字输入 */
 const ComfyUISlotInput: React.FC<{
   slot: { slotKey: string; label: string; type: string; nodeId?: string; inputName?: string };
@@ -116,7 +119,7 @@ const ComfyUISlotInput: React.FC<{
                 <Icons.Image size={16} style={{ color: themeColors.textMuted }} />
               </div>
               <span className={`text-[9px] font-medium uppercase tracking-wide ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
-                Upload or Prompt
+                上传或输入提示词
               </span>
             </>
           ) : (
@@ -144,7 +147,7 @@ const ComfyUISlotInput: React.FC<{
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload size={10} />
-              {uploading ? '上传中...' : 'Upload'}
+              {uploading ? '上传中...' : '上传'}
             </button>
             {creativeIdeas && creativeIdeas.length > 0 && (
               <CustomSelect
@@ -572,7 +575,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
 
   // Enter Key to Edit shortcut
   useEffect(() => {
-      if (isSelected && !isEditing && (node.type === 'text' || node.type === 'idea')) {
+      if (isSelected && !isEditing && node.type === 'text') {
           const handleKeyDown = (e: KeyboardEvent) => {
               if (e.key === 'Enter') {
                   e.preventDefault();
@@ -737,7 +740,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             >
                 <div className="flex items-center gap-2">
                     <Icons.Sparkles size={14} style={{ color: themeColors.textSecondary }} />
-                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: themeColors.textPrimary }}>{node.title || "LLM Logic"}</span>
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: themeColors.textPrimary }}>{node.title || "LLM 逻辑"}</span>
                 </div>
                 {hasOutput && (
                     <button
@@ -757,10 +760,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             >
                 {/* System Prompt (Optional) */}
                 <div className="flex flex-col gap-1 min-h-[30%]">
-                    <label className="text-[9px] font-bold uppercase px-1" style={{ color: themeColors.textMuted }}>System Instruction (Optional)</label>
+                    <label className="text-[9px] font-bold uppercase px-1" style={{ color: themeColors.textMuted }}>系统指令（可选）</label>
                     <textarea 
                         className={inputBaseClass + " flex-1 resize-none font-mono"}
-                        placeholder="Define behavior (e.g., 'You are a poet')..."
+                        placeholder="定义行为（如：'你是一位诗人'）..."
                         value={localSystem}
                         onChange={(e) => setLocalSystem(e.target.value)}
                         onBlur={handleUpdate}
@@ -770,10 +773,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                 
                 {/* User Prompt */}
                 <div className="flex flex-col gap-1 flex-1">
-                    <label className="text-[9px] font-bold uppercase px-1" style={{ color: themeColors.textMuted }}>User Prompt (Optional)</label>
+                    <label className="text-[9px] font-bold uppercase px-1" style={{ color: themeColors.textMuted }}>用户提示词（可选）</label>
                     <textarea 
                         className={inputBaseClass + " flex-1 resize-none"}
-                        placeholder="Additional instruction..."
+                        placeholder="附加指令..."
                         value={localPrompt}
                         onChange={(e) => setLocalPrompt(e.target.value)}
                         onBlur={handleUpdate}
@@ -792,10 +795,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
               }}
             >
                 <span className={`flex items-center gap-1 ${hasOutput ? 'text-emerald-500' : ''}`}>
-                   {hasOutput ? 'COMPLETED' : 'INPUT: AUTO'}
+                   {hasOutput ? '已完成' : '输入: 自动'}
                 </span>
                 <span className="flex items-center gap-1">
-                   OUT: <span style={{ color: themeColors.textSecondary }}>TEXT</span>
+                   输出: <span style={{ color: themeColors.textSecondary }}>文本</span>
                 </span>
             </div>
 
@@ -813,7 +816,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
     const isWidthEnabled = resizeMode === 'width' || resizeMode === 'exact' || resizeMode === 'longest' || resizeMode === 'shortest';
     const isHeightEnabled = resizeMode === 'height' || resizeMode === 'exact';
     
-    const widthLabel = (resizeMode === 'longest' || resizeMode === 'shortest') ? 'Target (px)' : 'Width (px)';
+    const widthLabel = (resizeMode === 'longest' || resizeMode === 'shortest') ? '目标 (px)' : '宽度 (px)';
 
     // 切换到 3D 模式
     const switchTo3D = () => {
@@ -843,12 +846,12 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             <div className="w-full h-full flex flex-col rounded-xl overflow-hidden relative shadow-lg" style={{ backgroundColor: themeColors.nodeBg, border: `1px solid ${themeColors.nodeBorder}` }}>
                 <div className="h-8 flex items-center px-3 gap-2 shrink-0" style={{ borderBottom: `1px solid ${themeColors.headerBorder}`, backgroundColor: themeColors.headerBg }}>
                     <Icons.Resize size={14} style={{ color: themeColors.textSecondary }} />
-                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: themeColors.textPrimary }}>Resized</span>
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: themeColors.textPrimary }}>已缩放</span>
                 </div>
                 <div className="flex-1 relative overflow-hidden">
                     <img 
                         src={node.content} 
-                        alt="Resized" 
+                        alt="已缩放" 
                         className="w-full h-full object-contain" 
                         draggable={false}
                         onLoad={handleImageLoad}
@@ -904,7 +907,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             <div className="h-8 flex items-center justify-between px-3 gap-2 shrink-0" style={{ borderBottom: `1px solid ${themeColors.headerBorder}`, backgroundColor: themeColors.headerBg }}>
                 <div className="flex items-center gap-2">
                     <Icons.Resize size={14} style={{ color: themeColors.textSecondary }} />
-                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: themeColors.textPrimary }}>Smart Resize</span>
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: themeColors.textPrimary }}>智能缩放</span>
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); switchTo3D(); }}
@@ -917,7 +920,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             </div>
             <div className="flex-1 p-3 flex flex-col justify-center gap-3">
                  <div className="space-y-1">
-                     <label className="text-[9px] font-bold text-zinc-500 uppercase px-1">Resize Mode</label>
+                     <label className="text-[9px] font-bold text-zinc-500 uppercase px-1">缩放模式</label>
                      <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
                         <button
                             className={inputBaseClass + " flex items-center justify-between gap-1 cursor-pointer hover:border-blue-500/30"}
@@ -927,21 +930,21 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             }}
                         >
                             <span className="truncate">
-                                {resizeMode === 'longest' ? 'Longest Side' :
-                                 resizeMode === 'shortest' ? 'Shortest Side' :
-                                 resizeMode === 'width' ? 'Fixed Width' :
-                                 resizeMode === 'height' ? 'Fixed Height' : 'Exact (Stretch)'}
+                                {resizeMode === 'longest' ? '最长边' :
+                                 resizeMode === 'shortest' ? '最短边' :
+                                 resizeMode === 'width' ? '固定宽度' :
+                                 resizeMode === 'height' ? '固定高度' : '精确（拉伸）'}
                             </span>
                             <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform ${openSelectKey === 'resize-mode' ? 'rotate-180' : ''}`} />
                         </button>
                         {openSelectKey === 'resize-mode' && (
                             <div className="absolute z-50 w-full mt-1 bg-[#1a1a1e] border border-white/20 rounded-lg shadow-xl overflow-hidden">
                                 {[
-                                    { value: 'longest', label: 'Longest Side' },
-                                    { value: 'shortest', label: 'Shortest Side' },
-                                    { value: 'width', label: 'Fixed Width' },
-                                    { value: 'height', label: 'Fixed Height' },
-                                    { value: 'exact', label: 'Exact (Stretch)' }
+                                    { value: 'longest', label: '最长边' },
+                                    { value: 'shortest', label: '最短边' },
+                                    { value: 'width', label: '固定宽度' },
+                                    { value: 'height', label: '固定高度' },
+                                    { value: 'exact', label: '精确（拉伸）' }
                                 ].map((opt) => (
                                     <div
                                         key={opt.value}
@@ -988,7 +991,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         />
                      </div>
                      <div className="space-y-1">
-                        <label className={`text-[9px] font-bold uppercase px-1 transition-colors ${isHeightEnabled ? 'text-zinc-500' : 'text-zinc-700'}`}>Height (px)</label>
+                        <label className={`text-[9px] font-bold uppercase px-1 transition-colors ${isHeightEnabled ? 'text-zinc-500' : 'text-zinc-700'}`}>高度 (px)</label>
                         <input 
                             type="number"
                             value={resizeHeight}
@@ -1262,10 +1265,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                     <div className="flex items-center gap-2">
                         <Icons.Sparkles size={12} style={{ color: isLightCanvas ? '#3b82f6' : '#93c5fd' }} />
                         <span className="text-[10px] font-bold truncate max-w-[200px]" style={{ color: isLightCanvas ? '#2563eb' : '#bfdbfe' }}>
-                            {bpTemplate?.title || 'BP 模板'}
+                            {bpTemplate?.title || '变量模板'}
                         </span>
                     </div>
-                    <span className="text-[8px] px-1.5 py-0.5 rounded" style={{ color: isLightCanvas ? '#1d4ed8' : 'rgba(147,197,253,0.6)', backgroundColor: isLightCanvas ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.2)' }}>BP</span>
+                    <span className="text-[8px] px-1.5 py-0.5 rounded" style={{ color: isLightCanvas ? '#1d4ed8' : 'rgba(147,197,253,0.6)', backgroundColor: isLightCanvas ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.2)' }}>变量</span>
                 </div>
                 
                 {hasImage ? (
@@ -3276,105 +3279,6 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         );
     }
     // Idea节点 - 类BP的简化版本，包含提示词和设置
-    if (node.type === 'idea') {
-        const settings = node.data?.settings || {};
-        const ideaTitle = node.title || '创意';
-        
-        return (
-            <div className="w-full h-full flex flex-col overflow-hidden rounded-xl shadow-lg relative" style={{ backgroundColor: themeColors.nodeBg, border: `1px solid ${isLightCanvas ? 'rgba(59,130,246,0.3)' : 'rgba(59,130,246,0.3)'}` }}>
-                {/* 标题栏 - 与BP一致 */}
-                <div className="h-8 flex items-center justify-between px-3 shrink-0" style={{ borderBottom: `1px solid ${isLightCanvas ? 'rgba(59,130,246,0.2)' : 'rgba(59,130,246,0.2)'}`, backgroundColor: isLightCanvas ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.1)' }}>
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <Icons.Sparkles size={12} className="flex-shrink-0" style={{ color: isLightCanvas ? '#3b82f6' : '#93c5fd' }} />
-                        <span className="text-[10px] font-bold truncate max-w-[200px]" style={{ color: isLightCanvas ? '#2563eb' : '#bfdbfe' }}>{ideaTitle}</span>
-                    </div>
-                    <span className="text-[8px] px-1.5 py-0.5 rounded" style={{ color: isLightCanvas ? '#1d4ed8' : 'rgba(147,197,253,0.6)', backgroundColor: isLightCanvas ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.2)' }}>IDEA</span>
-                </div>
-                
-                {/* 提示词编辑区 - 固定高度，内容滚动 */}
-                <div className="flex-1 p-3 flex flex-col overflow-hidden" onWheel={(e) => e.stopPropagation()}>
-                    <label className="text-[10px] text-zinc-400 uppercase tracking-wider font-medium block mb-1.5 flex-shrink-0">提示词</label>
-                    <div className="flex-1 min-h-0 overflow-hidden">
-                        <textarea 
-                            className={`w-full h-full ${controlBg} border rounded-lg px-3 py-2 text-xs outline-none transition-colors resize-none overflow-y-auto scrollbar-hide ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-blue-400 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-blue-500/50'}`}
-                            placeholder="输入提示词..."
-                            value={localContent}
-                            onChange={(e) => setLocalContent(e.target.value)}
-                            onBlur={(e) => {
-                                onUpdate(node.id, { content: localContent });
-                            }}
-                            onMouseDown={(e) => e.stopPropagation()}
-                        />
-                    </div>
-                </div>
-                
-                {/* 设置区 - 与BP一致的样式 */}
-                <div className="px-3 pb-3 space-y-1.5 flex-shrink-0">
-                    {/* 比例第一行 */}
-                    <div className={`flex ${controlBg} rounded-lg p-0.5`}>
-                        {['AUTO', '1:1', '2:3', '3:2', '3:4', '4:3'].map(ratio => (
-                            <button
-                                key={ratio}
-                                className={`flex-1 px-1 py-1 text-[9px] font-medium rounded-md transition-all ${(settings.aspectRatio || 'AUTO') === ratio ? `${selectedBg} ${selectedText}` : 'text-zinc-500 hover:text-zinc-300'}`}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onUpdate(node.id, { data: { ...node.data, settings: { ...settings, aspectRatio: ratio } } });
-                                }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                            >
-                                {ratio}
-                            </button>
-                        ))}
-                    </div>
-                    {/* 比例第二行 */}
-                    <div className={`flex ${controlBg} rounded-lg p-0.5`}>
-                        {['3:5', '5:3', '9:16', '16:9', '21:9'].map(ratio => (
-                            <button
-                                key={ratio}
-                                className={`flex-1 px-1 py-1 text-[9px] font-medium rounded-md transition-all ${settings.aspectRatio === ratio ? `${selectedBg} ${selectedText}` : 'text-zinc-500 hover:text-zinc-300'}`}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onUpdate(node.id, { data: { ...node.data, settings: { ...settings, aspectRatio: ratio } } });
-                                }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                            >
-                                {ratio}
-                            </button>
-                        ))}
-                    </div>
-                    {/* 分辨率 */}
-                    <div className={`flex ${controlBg} rounded-lg p-0.5`}>
-                        {['1K', '2K', '4K'].map(res => (
-                            <button
-                                key={res}
-                                className={`flex-1 px-2 py-1 text-[10px] font-medium rounded-md transition-all ${(settings.resolution || '2K') === res ? `${selectedBg} ${selectedText}` : 'text-zinc-500 hover:text-zinc-300'}`}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onUpdate(node.id, { data: { ...node.data, settings: { ...settings, resolution: res } } });
-                                }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                            >
-                                {res}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                
-                {/* 底部状态 - 与BP一致 */}
-                <div className={`h-6 ${footerBarBg} border-t px-3 flex items-center justify-between text-[10px]`} style={{ borderColor: themeColors.headerBorder, color: themeColors.textMuted }}>
-                    <span>输入: 1/1</span>
-                    <span>{settings.aspectRatio || 'AUTO'} · {settings.resolution || '2K'}</span>
-                </div>
-                
-                {isRunning && (
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-30">
-                        <div className="w-8 h-8 border-2 border-blue-400/50 border-t-blue-400 rounded-full animate-spin"></div>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
     if (node.type === 'image') {
       // 检查是否有有效图片（支持 data: 、http URL 和 相对路径）
       const hasImage = node.content && (
@@ -3401,14 +3305,14 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                       <Icons.Image size={18} className={isLightCanvas ? 'text-gray-400' : 'text-zinc-500'} />
                    </div>
                    <div className={`text-[9px] font-medium uppercase tracking-widest text-center ${isLightCanvas ? 'text-gray-500' : 'text-zinc-600'}`}>
-                       Upload or Prompt
+                       上传或输入提示词
                    </div>
                    <button 
                      className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[10px] px-2 py-1 rounded-full flex items-center gap-1 border border-blue-500/20 transition-colors"
                      onClick={() => fileInputRef.current?.click()}
                      onMouseDown={(e) => e.stopPropagation()} 
                    >
-                       <Icons.Upload size={10} /> Upload
+                       <Icons.Upload size={10} /> 上传
                    </button>
                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
                    
@@ -3431,7 +3335,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                 <div className="absolute inset-0 bg-zinc-900 z-0" />
                 <img 
                     src={node.content} 
-                    alt="Image" 
+                    alt="图片" 
                     className="relative z-10 w-full h-full object-contain select-none pointer-events-none" 
                     draggable={false}
                     style={{
@@ -3474,81 +3378,18 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                   )}
                 </div>
                 
-                {/* 工具箱按钮 - 向左上移动一些 */}
-                <div className="absolute bottom-6 right-6 z-20">
-                  <button
-                    className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md flex items-center justify-center transition-all"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowToolbox(!showToolbox);
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    title="工具箱"
-                  >
-                    <Icons.Wrench size={16} className="text-white/70" />
-                  </button>
-                  
-                  {/* 工具球 - 向上弹出 */}
-                  {showToolbox && onCreateToolNode && (
-                    <div className="absolute bottom-full right-0 mb-2 flex flex-col gap-2">
-                      {/* 高清 */}
-                      <button
-                        className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 backdrop-blur-md flex items-center justify-center transition-all transform hover:scale-110"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCreateToolNode(node.id, 'upscale', { x: node.x + node.width + 100, y: node.y });
-                          setShowToolbox(false);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        title="高清化"
-                        style={{ filter: `drop-shadow(0 0 4px ${nodeColor.light})` }}
-                      >
-                        <Icons.Sparkles size={14} className="text-white" />
-                      </button>
-                      
-                      {/* 提取主体 */}
-                      <button
-                        className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 backdrop-blur-md flex items-center justify-center transition-all transform hover:scale-110"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCreateToolNode(node.id, 'remove-bg', { x: node.x + node.width + 100, y: node.y });
-                          setShowToolbox(false);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        title="移除背景"
-                        style={{ filter: `drop-shadow(0 0 4px ${nodeColor.light})` }}
-                      >
-                        <Icons.Scissors size={14} className="text-white" />
-                      </button>
-                      
-                      {/* 扩图 */}
-                      <button
-                        className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 backdrop-blur-md flex items-center justify-center transition-all transform hover:scale-110"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCreateToolNode(node.id, 'edit', { x: node.x + node.width + 100, y: node.y });
-                          setShowToolbox(false);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        title="扩展图片"
-                        style={{ filter: `drop-shadow(0 0 4px ${nodeColor.light})` }}
-                      >
-                        <Icons.Expand size={14} className="text-white" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                {/* 工具箱已移至节点下方浮动面板（ImageGenPanel 工具箱模式） */}
              </>
            )}           
            {/* 状态标签 - 保持在左上角 */}
            <div 
-             className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded text-[9px] font-bold uppercase backdrop-blur-md"
+             className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded text-[9px] font-bold backdrop-blur-md"
              style={{
                backgroundColor: hasImage ? `${nodeColor.primary}40` : (isLightCanvas ? 'rgb(229, 231, 235)' : 'rgb(39, 39, 42)'),
                color: hasImage ? nodeColor.light : (isLightCanvas ? 'rgb(75, 85, 99)' : 'rgb(113, 113, 122)')
              }}
            >
-               Image
+               图片
            </div>
            
            {isRunning && (
@@ -4613,16 +4454,16 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
     const isWorkflowNode = ['edit', 'remove-bg', 'upscale'].includes(node.type);
     if (isWorkflowNode) {
         let icon = <Icons.Settings />;
-        let label = "Node";
+        let label = "节点";
 
         if (node.type === 'edit') { 
-            icon = <BananaIcon size={12} className="text-yellow-300" />; label = "Magic";
+            icon = <BananaIcon size={12} className="text-yellow-300" />; label = "魔法扩图";
         }
         if (node.type === 'remove-bg') { 
-            icon = <Icons.Scissors size={14} className="text-white/70" />; label = "Remove BG";
+            icon = <Icons.Scissors size={14} className="text-white/70" />; label = "移除背景";
         }
         if (node.type === 'upscale') { 
-            icon = <Icons.Upscale size={14} className="text-white/70" />; label = "Upscale 4K";
+            icon = <Icons.Upscale size={14} className="text-white/70" />; label = "高清 4K";
         }
 
         // Edit 节点的设置
@@ -4714,7 +4555,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 hover:opacity-100 transition-opacity z-20">
                         <textarea 
                             className={inputBaseClass + " resize-none text-[10px]"}
-                            placeholder="New instructions..."
+                            placeholder="新的指令..."
                             value={localPrompt}
                             onChange={(e) => setLocalPrompt(e.target.value)}
                             onBlur={handleUpdate}
@@ -4882,10 +4723,13 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                 <div className="flex-1 p-3 flex flex-col gap-2 relative">
                     <textarea 
                         className={inputBaseClass + " flex-1 resize-none"}
-                        placeholder="Instructions..."
-                        value={localPrompt}
+                        placeholder="指令..."
+                        value={node.type === 'remove-bg' && !localPrompt ? REMOVE_BG_DEFAULT_PROMPT : localPrompt}
                         onChange={(e) => setLocalPrompt(e.target.value)}
-                        onBlur={handleUpdate}
+                        onBlur={() => {
+                            const p = node.type === 'remove-bg' && !localPrompt ? REMOVE_BG_DEFAULT_PROMPT : localPrompt;
+                            onUpdate(node.id, { content: localContent, data: { ...node.data, prompt: p, klingNegativePrompt: localKlingNegativePrompt, systemInstruction: localSystem, resizeMode: resizeMode, resizeWidth: resizeWidth, resizeHeight: resizeHeight } });
+                        }}
                         onMouseDown={(e) => e.stopPropagation()} 
                     />
                      <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-white/10 rounded text-[8px] font-bold text-zinc-400 uppercase">
@@ -4901,7 +4745,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         );
     }
 
-    // Standard Text / Idea - Simplified
+    // 标准文本节点
     // 阻止滚轮事件冒泡到画布
     const handleTextWheel = (e: React.WheelEvent) => {
         e.stopPropagation();
@@ -4928,10 +4772,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                   value={localContent}
                   onChange={(e) => setLocalContent(e.target.value)}
                   onBlur={handleBlur}
-                  placeholder="Type something..."
+                  placeholder="输入文本..."
                   autoFocus
                />
-               <div className="text-[9px] text-zinc-600 text-right">Click outside to save</div>
+               <div className="text-[9px] text-zinc-600 text-right">点击外部保存</div>
            </div>
         ) : (
           <div 
@@ -4940,15 +4784,15 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
           >
              {/* No title, just content. Drag handled by parent div */}
              <p className="text-zinc-200 text-sm whitespace-pre-wrap leading-relaxed flex-1 font-medium pointer-events-none">
-                 {localContent || <span className="text-zinc-600 italic">Double-click to edit...</span>}
+                 {localContent || <span className="text-zinc-600 italic">双击编辑...</span>}
              </p>
           </div>
         )}
         
         {/* Type Badge - Only show on hover or selected */}
         {(isSelected) && (
-             <div className="absolute bottom-2 right-2 z-20 px-2 py-0.5 bg-white/10 rounded text-[9px] font-bold text-white/60 uppercase pointer-events-none">
-                {(node.type as string) === 'idea' ? 'Idea' : 'Text'}
+             <div className="absolute bottom-2 right-2 z-20 px-2 py-0.5 bg-white/10 rounded text-[9px] font-bold text-white/60 pointer-events-none">
+                文本
             </div>
         )}
 
@@ -5028,7 +4872,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
       {(isSelected) && !isRelay && (
         <div className="absolute -top-10 right-0 flex gap-1.5 animate-in fade-in slide-in-from-bottom-2 z-[60]">
              {/* Edit Button for Text/Idea */}
-             {['text', 'idea'].includes(node.type) && !isEditing && (
+             {node.type === 'text' && !isEditing && (
                  <button 
                     onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
                     className="p-1.5 rounded-lg border shadow-lg transition-colors"
@@ -5037,17 +4881,17 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                       borderColor: isLightCanvas ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
                       color: isLightCanvas ? '#6e6e73' : '#d4d4d8'
                     }}
-                    title="Edit Text (Enter)"
+                    title="编辑文本 (Enter)"
                  >
                     <Icons.Edit size={12} fill="currentColor" />
                  </button>
              )}
 
              {/* Execute Button with Batch Count */}
-             {['image', 'text', 'idea', 'edit', 'video', 'llm', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && (
+             {['image', 'text', 'edit', 'video', 'llm', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && (
                  <div className="flex items-center gap-0.5">
                    {/* 批量数量选择器 - 对图片生成类型节点显示 */}
-                   {['image', 'edit', 'bp', 'idea', 'remove-bg', 'upscale', 'video', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && !isRunning && (
+                   {['image', 'edit', 'bp', 'remove-bg', 'upscale', 'video', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && !isRunning && (
                      <div 
                        className="flex items-center h-8 rounded-l-lg border border-r-0 overflow-hidden"
                        style={{ 
@@ -5085,7 +4929,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                       }}
                       disabled={!isRunning && node.status === 'running'}
                       className={`h-8 px-2.5 border shadow-lg transition-colors flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed
-                          ${['image', 'edit', 'bp', 'idea', 'remove-bg', 'upscale', 'video', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && !isRunning ? 'rounded-r-lg' : 'rounded-lg'}
+                          ${['image', 'edit', 'bp', 'remove-bg', 'upscale', 'video', 'rh-config', 'comfyui', 'comfy-config'].includes(node.type) && !isRunning ? 'rounded-r-lg' : 'rounded-lg'}
                           ${isRunning ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30' : ''}
                       `}
                       style={!isRunning ? {
@@ -5095,7 +4939,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                       } : undefined}
                    >
                       {isRunning ? <Icons.Stop size={12} fill="currentColor" /> : <Icons.Play size={12} fill="currentColor" />}
-                      {isRunning ? 'Stop' : 'Run'}
+                      {isRunning ? '停止' : '执行'}
                    </button>
                  </div>
              )}
@@ -5110,7 +4954,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                       borderColor: isLightCanvas ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
                       color: isLightCanvas ? '#6e6e73' : '#d4d4d8'
                     }}
-                    title="Download Output"
+                    title="下载输出"
                 >
                     <Icons.Download size={14} />
                 </button>

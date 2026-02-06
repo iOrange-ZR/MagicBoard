@@ -295,13 +295,6 @@ export const RunningHubGenerator: React.FC<RunningHubGeneratorProps> = ({
                             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
                                 {idea.title}
                             </h1>
-                            {idea.cost && (
-                                <div className="flex items-center gap-1.5 mt-1">
-                                    <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full border border-blue-400/20 font-medium flex items-center gap-1">
-                                        💎 消耗 {idea.cost} 鹅卵石
-                                    </span>
-                                </div>
-                            )}
                         </div>
                     </div>
 
@@ -393,10 +386,6 @@ export const RunningHubGenerator: React.FC<RunningHubGeneratorProps> = ({
                                     <h3 className="text-lg font-semibold text-white mb-6">准备生成</h3>
 
                                     <div className="space-y-4 mb-8">
-                                        <div className="flex justify-between items-center text-sm">
-                                            <span className="text-gray-400">预计消耗</span>
-                                            <span className="text-blue-400 font-medium">{idea.cost || 0} 鹅卵石</span>
-                                        </div>
                                         <div className="flex justify-between items-center text-sm">
                                             <span className="text-gray-400">预计耗时</span>
                                             <span className="text-white">~1-2 分钟</span>

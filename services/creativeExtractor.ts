@@ -17,7 +17,6 @@ interface FormattedCreative {
   author: string;
   prompt: string;
   imageUrl: string;
-  cost: number;
   isSmart: boolean;
   isSmartPlus: boolean;
   isBP: boolean;
@@ -219,7 +218,6 @@ class CreativeExtractor {
       author: author,
       prompt: prompt,
       imageUrl: base64Image,
-      cost: record.cost ?? 0,
       isSmart: record.isSmart ?? false,
       isSmartPlus: record.isSmartPlus ?? false,
       isBP: record.isBP ?? false,

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { CanvasNode, Vec2, NodeType, Connection, GenerationConfig, NodeData, CanvasPreset, PresetInput, KlingO1InputItem } from '../../types/pebblingTypes';
-import { CreativeIdea } from '../../types';
+import { CreativeIdea, DesktopItem, DesktopFolderItem, DesktopImageItem, DesktopVideoItem } from '../../types';
 import FloatingInput from './FloatingInput';
 import CanvasNodeItem from './CanvasNode';
 import Sidebar from './Sidebar';
@@ -17,7 +17,8 @@ import type { ComfyUIWorkflowConfig, ComfyUIAddress } from '../../services/api/c
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import * as canvasApi from '../../services/api/canvas';
-import { downloadRemoteToOutput, saveVideoToOutput } from '../../services/api/files';
+import { downloadRemoteToOutput, saveVideoToOutput, saveBatchToOutput } from '../../services/api/files';
+import type { BatchSaveItem } from '../../services/api/files';
 import { Icons } from './Icons';
 import { getVideoModelFamily } from '../../constants/videoModels';
 
@@ -299,22 +300,35 @@ const extractImageMetadata = async (imageUrl: string): Promise<ImageMetadata> =>
 
 // === 画布组件开始 ===
 
+export interface BatchSavedOptions {
+  label: string;
+  imageUrls: string[];
+  coverIndex: number;
+  canvasId?: string;
+  canvasName?: string;
+  isVideo?: boolean;
+}
+
 interface PebblingCanvasProps {
   onImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void; // 回调同步到桌面（含画布ID用于联动；isVideo 用于 ComfyUI 视频 URL 正确保存）
+  onBatchSaved?: (opts: BatchSavedOptions) => void; // 批量保存完成：创建桌面子文件夹并放入全部图片
   onCanvasCreated?: (canvasId: string, canvasName: string) => void; // 画布创建回调（用于桌面联动创建文件夹）
   onCanvasDeleted?: (canvasId: string) => void; // 画布删除回调（用于桌面文件夹标记归档）
-  creativeIdeas?: CreativeIdea[]; // 主项目创意库
+  creativeIdeas?: CreativeIdea[]; // 主项目创意文本库
+  desktopItems?: DesktopItem[]; // 素材库（桌面）项目，用于画布内素材库浮动面板
   isActive?: boolean; // 画布是否处于活动状态（用于快捷键作用域控制）
-  pendingImageToAdd?: { imageUrl: string; imageName?: string } | null; // 待添加的图片（从桌面添加）
+  pendingImageToAdd?: { imageUrl: string; imageName?: string } | null; // 待添加的图片（从素材库添加）
   onPendingImageAdded?: () => void; // 图片添加完成后的回调
   saveRef?: React.MutableRefObject<(() => Promise<void>) | null>; // 暴露保存函数给父组件
 }
 
 const PebblingCanvas: React.FC<PebblingCanvasProps> = ({ 
   onImageGenerated, 
+  onBatchSaved,
   onCanvasCreated,
   onCanvasDeleted,
   creativeIdeas = [], 
+  desktopItems = [],
   isActive = true,
   pendingImageToAdd,
   onPendingImageAdded,
@@ -386,12 +400,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   });
   // 浮动面板位置和锁定（展开态）
   const [canvasLibraryPos, setCanvasLibraryPos] = useState<{ x: number; y: number }>(() => {
-    try { const s = localStorage.getItem('canvas_library_float_pos'); return s ? JSON.parse(s) : { x: -1, y: 12 }; } catch { return { x: -1, y: 12 }; }
+    try { const s = localStorage.getItem('canvas_library_float_pos'); return s ? JSON.parse(s) : { x: -1, y: -1 }; } catch { return { x: -1, y: -1 }; }
   });
   const [canvasLibraryLocked, setCanvasLibraryLocked] = useState<boolean>(() => {
     try { return localStorage.getItem('canvas_library_float_locked') === 'true'; } catch { return false; }
   });
-  // 浮动图标位置和锁定（收起态）
+  // 浮动图标位置和锁定（收起态）- 默认在右侧下方，与素材库上下摆放
   const [canvasLibraryIconPos, setCanvasLibraryIconPos] = useState<{ x: number; y: number }>(() => {
     try { const s = localStorage.getItem('canvas_library_icon_pos'); return s ? JSON.parse(s) : { x: -1, y: -1 }; } catch { return { x: -1, y: -1 }; }
   });
@@ -400,6 +414,33 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   });
   // 拖拽 ref
   const canvasLibDragRef = useRef<{ target: 'panel' | 'icon'; startMouse: { x: number; y: number }; startPos: { x: number; y: number } } | null>(null);
+
+  // 素材库浮动面板状态（独立于创意文本库）
+  const [isMediaLibraryCollapsed, setIsMediaLibraryCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('canvas_media_library_collapsed') === 'true'; } catch { return false; }
+  });
+  const [mediaLibraryWidth, setMediaLibraryWidth] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('canvas_media_library_width') || '280') || 280; } catch { return 280; }
+  });
+  const [mediaLibraryHeight, setMediaLibraryHeight] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('canvas_media_library_height') || '0') || 0; } catch { return 0; }
+  });
+  const [mediaLibraryPos, setMediaLibraryPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('canvas_media_library_pos'); return s ? JSON.parse(s) : { x: -1, y: 12 }; } catch { return { x: -1, y: 12 }; }
+  });
+  const [mediaLibraryLocked, setMediaLibraryLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('canvas_media_library_locked') === 'true'; } catch { return false; }
+  });
+  const [mediaLibraryIconPos, setMediaLibraryIconPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('canvas_media_library_icon_pos'); return s ? JSON.parse(s) : { x: -1, y: 12 }; } catch { return { x: -1, y: 12 }; }
+  });
+  const [mediaLibraryIconLocked, setMediaLibraryIconLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('canvas_media_library_icon_locked') === 'true'; } catch { return false; }
+  });
+  const [mediaLibraryFilter, setMediaLibraryFilter] = useState<'all' | 'image' | 'video'>('all');
+  const mediaLibDragRef = useRef<{ target: 'panel' | 'icon'; startMouse: { x: number; y: number }; startPos: { x: number; y: number } } | null>(null);
+  const mediaLibResizeRef = useRef<{ edge: 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'; startMouse: { x: number; y: number }; startSize: { w: number; h: number }; startPos: { x: number; y: number } } | null>(null);
+  const mediaDragStartedRef = useRef(false); // 区分点击与拖拽，避免拖拽松开后误触发点击放置
 
   // ComfyUI 工作流列表（供画布节点选择，与 ComfyUI Tab 配置同步）
   const [comfyuiWorkflows, setComfyuiWorkflows] = useState<ComfyUIWorkflowConfig[]>([]);
@@ -1101,7 +1142,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       switch (effectiveType) {
           case 'image': case 'edit': case 'remove-bg': case 'upscale': case 'resize': return '#3b82f6';
           case 'llm': return '#a855f7'; // Purple for LLM/Logic
-          case 'text': case 'idea': return '#10b981'; // Emerald for Text/Idea
+          case 'text': return '#10b981'; // Emerald for Text
           case 'video': return '#eab308';
           default: return '#71717a';
       }
@@ -1142,6 +1183,15 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   useEffect(() => { try { localStorage.setItem('canvas_library_icon_pos', JSON.stringify(canvasLibraryIconPos)); } catch {} }, [canvasLibraryIconPos]);
   useEffect(() => { try { localStorage.setItem('canvas_library_icon_locked', String(canvasLibraryIconLocked)); } catch {} }, [canvasLibraryIconLocked]);
 
+  // 持久化素材库浮动面板状态
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_collapsed', String(isMediaLibraryCollapsed)); } catch {} }, [isMediaLibraryCollapsed]);
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_width', String(mediaLibraryWidth)); } catch {} }, [mediaLibraryWidth]);
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_height', String(mediaLibraryHeight)); } catch {} }, [mediaLibraryHeight]);
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_pos', JSON.stringify(mediaLibraryPos)); } catch {} }, [mediaLibraryPos]);
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_locked', String(mediaLibraryLocked)); } catch {} }, [mediaLibraryLocked]);
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_icon_pos', JSON.stringify(mediaLibraryIconPos)); } catch {} }, [mediaLibraryIconPos]);
+  useEffect(() => { try { localStorage.setItem('canvas_media_library_icon_locked', String(mediaLibraryIconLocked)); } catch {} }, [mediaLibraryIconLocked]);
+
   // 浮动面板拖拽逻辑
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -1159,25 +1209,92 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
   }, []);
 
-  // 浮动面板边缘拖拽调整大小
-  const canvasLibResizeRef = useRef<{ edge: 'left' | 'bottom' | 'bottom-left'; startMouse: { x: number; y: number }; startSize: { w: number; h: number }; startPos: { x: number; y: number } } | null>(null);
+  // 素材库浮动面板拖拽逻辑
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!mediaLibDragRef.current) return;
+      const dx = e.clientX - mediaLibDragRef.current.startMouse.x;
+      const dy = e.clientY - mediaLibDragRef.current.startMouse.y;
+      const newX = Math.max(0, Math.min(window.innerWidth - 60, mediaLibDragRef.current.startPos.x + dx));
+      const newY = Math.max(0, Math.min(window.innerHeight - 40, mediaLibDragRef.current.startPos.y + dy));
+      if (mediaLibDragRef.current.target === 'panel') setMediaLibraryPos({ x: newX, y: newY });
+      else setMediaLibraryIconPos({ x: newX, y: newY });
+    };
+    const handleMouseUp = () => { mediaLibDragRef.current = null; };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
+  // 浮动面板边缘拖拽调整大小（左/右/上/下及四角）
+  type ResizeEdge = 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  const canvasLibResizeRef = useRef<{ edge: ResizeEdge; startMouse: { x: number; y: number }; startSize: { w: number; h: number }; startPos: { x: number; y: number } } | null>(null);
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasLibResizeRef.current) return;
       const { edge, startMouse, startSize, startPos } = canvasLibResizeRef.current;
       const dx = e.clientX - startMouse.x;
       const dy = e.clientY - startMouse.y;
-      if (edge === 'left' || edge === 'bottom-left') {
+      const updateLeft = edge === 'left' || edge === 'top-left' || edge === 'bottom-left';
+      const updateRight = edge === 'right' || edge === 'top-right' || edge === 'bottom-right';
+      const updateTop = edge === 'top' || edge === 'top-left' || edge === 'top-right';
+      const updateBottom = edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right';
+      if (updateLeft) {
         const newW = Math.max(200, Math.min(500, startSize.w - dx));
         setCreativeLibrarySidebarWidth(newW);
         setCanvasLibraryPos(prev => ({ ...prev, x: startPos.x + dx }));
       }
-      if (edge === 'bottom' || edge === 'bottom-left') {
+      if (updateRight) {
+        const newW = Math.max(200, Math.min(500, startSize.w + dx));
+        setCreativeLibrarySidebarWidth(newW);
+      }
+      if (updateTop) {
+        const newH = Math.max(200, Math.min(window.innerHeight - 20, startSize.h - dy));
+        setCanvasLibraryHeight(newH);
+        setCanvasLibraryPos(prev => ({ ...prev, y: startPos.y + dy }));
+      }
+      if (updateBottom) {
         const newH = Math.max(200, Math.min(window.innerHeight - 20, startSize.h + dy));
         setCanvasLibraryHeight(newH);
       }
     };
     const handleMouseUp = () => { canvasLibResizeRef.current = null; document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
+  // 素材库浮动面板边缘拖拽调整大小（左/右/上/下及四角）
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!mediaLibResizeRef.current) return;
+      const { edge, startMouse, startSize, startPos } = mediaLibResizeRef.current;
+      const dx = e.clientX - startMouse.x;
+      const dy = e.clientY - startMouse.y;
+      const updateLeft = edge === 'left' || edge === 'top-left' || edge === 'bottom-left';
+      const updateRight = edge === 'right' || edge === 'top-right' || edge === 'bottom-right';
+      const updateTop = edge === 'top' || edge === 'top-left' || edge === 'top-right';
+      const updateBottom = edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right';
+      if (updateLeft) {
+        const newW = Math.max(200, Math.min(500, startSize.w - dx));
+        setMediaLibraryWidth(newW);
+        setMediaLibraryPos(prev => ({ ...prev, x: startPos.x + dx }));
+      }
+      if (updateRight) {
+        const newW = Math.max(200, Math.min(500, startSize.w + dx));
+        setMediaLibraryWidth(newW);
+      }
+      if (updateTop) {
+        const newH = Math.max(200, Math.min(window.innerHeight - 20, startSize.h - dy));
+        setMediaLibraryHeight(newH);
+        setMediaLibraryPos(prev => ({ ...prev, y: startPos.y + dy }));
+      }
+      if (updateBottom) {
+        const newH = Math.max(200, Math.min(window.innerHeight - 20, startSize.h + dy));
+        setMediaLibraryHeight(newH);
+      }
+    };
+    const handleMouseUp = () => { mediaLibResizeRef.current = null; document.body.style.cursor = ''; document.body.style.userSelect = ''; };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
@@ -1191,6 +1308,16 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     canvasLibDragRef.current = { target, startMouse: { x: e.clientX, y: e.clientY }, startPos: { x: rect.left, y: rect.top } };
     if (target === 'panel') setCanvasLibraryPos({ x: rect.left, y: rect.top });
     else setCanvasLibraryIconPos({ x: rect.left, y: rect.top });
+  }, []);
+
+  // 开始拖拽素材库浮动面板
+  const startMediaLibDrag = useCallback((target: 'panel' | 'icon', e: React.MouseEvent, el: HTMLElement) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = el.getBoundingClientRect();
+    mediaLibDragRef.current = { target, startMouse: { x: e.clientX, y: e.clientY }, startPos: { x: rect.left, y: rect.top } };
+    if (target === 'panel') setMediaLibraryPos({ x: rect.left, y: rect.top });
+    else setMediaLibraryIconPos({ x: rect.left, y: rect.top });
   }, []);
 
   // 辅助：计算浮动位置 style（x=-1 用 right，y=-1 用 bottom）
@@ -1254,24 +1381,20 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       };
       setNodes(prev => [...prev, bpNode]);
     } else {
-      const ideaId = `idea_${Date.now()}`;
-      const ideaNode: CanvasNode = {
-        id: ideaId,
-        type: 'idea' as NodeType,
+      // 非BP创意：创建text节点承载提示词
+      const textId = `text_${Date.now()}`;
+      const textNode: CanvasNode = {
+        id: textId,
+        type: 'text' as NodeType,
         title: idea.title,
         content: idea.prompt,
         x: baseX,
         y: baseY,
         width: 280,
         height: 280,
-        data: {
-          settings: {
-            aspectRatio: idea.suggestedAspectRatio || '1:1',
-            resolution: idea.suggestedResolution || '2K',
-          },
-        },
+        data: {},
       };
-      setNodes(prev => [...prev, ideaNode]);
+      setNodes(prev => [...prev, textNode]);
     }
   }, [canvasOffset, scale]);
 
@@ -1287,12 +1410,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     setHasUnsavedChanges(true);
   }, []);
 
-  // 计算 ImageGenPanel 在屏幕上的位置（节点右侧）
+  // 计算 ImageGenPanel 在屏幕上的位置（节点下方居中）
   const getImageGenPanelPosition = useCallback((nodeId: string) => {
     const node = nodesRef.current.find(n => n.id === nodeId);
     if (!node) return { x: 200, y: 200 };
-    const screenX = (node.x + (node.width || 300)) * scale + canvasOffset.x + 16;
-    const screenY = node.y * scale + canvasOffset.y;
+    const screenX = (node.x + (node.width || 300) / 2) * scale + canvasOffset.x;
+    const screenY = (node.y + (node.height || 300)) * scale + canvasOffset.y + 12;
     return { x: screenX, y: screenY };
   }, [scale, canvasOffset]);
 
@@ -1428,7 +1551,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           const x = (detail.x - rect.left - canvasOffset.x) / scale - 150;
           const y = (detail.y - rect.top - canvasOffset.y) / scale - 100;
           
-          if (detail.type && ['image', 'text', 'video', 'llm', 'idea', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'drawing-board', 'comfyui', 'comfy-config'].includes(detail.type)) {
+          if (detail.type && ['image', 'text', 'video', 'llm', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'runninghub', 'rh-config', 'drawing-board', 'comfyui', 'comfy-config'].includes(detail.type)) {
               console.log('[Canvas] 创建节点:', detail.type, '位置:', x, y);
               addNode(detail.type, '', { x, y });
           }
@@ -1632,6 +1755,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       return newNode;
   };
 
+  // 点击素材库项在画布上放置节点（与创意文本库点击放置一致）
+  const handleApplyMediaItem = useCallback((type: 'image' | 'video-output', url: string, name?: string) => {
+    const baseX = -canvasOffset.x / scale + 200;
+    const baseY = -canvasOffset.y / scale + 100;
+    setHasUnsavedChanges(true);
+    addNode(type, url, { x: baseX, y: baseY }, name);
+  }, [canvasOffset, scale]);
+
   // 处理从桌面添加图片到画布 - 使用 ref 避免闭包问题
   const pendingImageRef = useRef<{ imageUrl: string; imageName?: string } | null>(null);
   const canvasInitializedRef = useRef(false); // 标记画布是否已初始化
@@ -1826,7 +1957,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       foundImageInThisPath = true;
                   }
               }
-          } else if (node.type === 'text' || node.type === 'idea') {
+          } else if (node.type === 'text') {
               // 文本节点：输入=文本，输出=文本
               // 文本可以为空，但不管有没有内容，都不应该向上追溯找图片
               if (node.content) {
@@ -1941,6 +2072,67 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       return { images, videos, items };
   };
 
+  // --- 多图：批量保存到 output 子文件夹，完成后走 onBatchSaved 或 onImageGenerated（封面） ---
+  const saveBatchToDesktopFolder = useCallback(async (
+      contents: string[],
+      coverIndex: number,
+      label: string,
+      isVideo: boolean = false,
+  ) => {
+      if (!contents.length) return;
+      if (!onImageGenerated && !onBatchSaved) return;
+
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY_MS = 1500;
+      const timestamp = new Date().toISOString().replace(/[:.T]/g, '-').slice(0, 19);
+      const safeLabel = label.replace(/[<>:"\/\\|?*]/g, '_').trim().slice(0, 20) || '生成';
+      const subFolder = `batch_${safeLabel}_${timestamp}`;
+      const items: BatchSaveItem[] = contents.map((content, i) => ({
+          data: content,
+          filename: isVideo ? `${i + 1}_${Date.now()}.mp4` : `${i + 1}_${Date.now()}.png`,
+          isVideo,
+      }));
+
+      const saveWithRetry = async (): Promise<{ savedUrls: string[]; coverUrl: string }> => {
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+              try {
+                  const result = await saveBatchToOutput(items, subFolder, coverIndex);
+                  if (result.success && result.data) {
+                      const savedUrls = (result.data.results || [])
+                          .filter(r => r.success && r.data?.url)
+                          .map(r => r.data!.url);
+                      const clampedCover = Math.min(Math.max(0, coverIndex), Math.max(0, savedUrls.length - 1));
+                      const coverUrl = savedUrls[clampedCover] || savedUrls[0] || '';
+                      return { savedUrls, coverUrl };
+                  }
+                  throw new Error(result.error || '保存返回失败');
+              } catch (err) {
+                  console.warn(`[批量保存] 第${attempt}次尝试失败:`, err);
+                  if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY_MS * attempt));
+              }
+          }
+          return { savedUrls: [], coverUrl: '' };
+      };
+
+      saveWithRetry().then(({ savedUrls }) => {
+          if (savedUrls.length === 0) return;
+          const batchLabel = `📁 ${safeLabel} (${savedUrls.length}张)`;
+          if (onBatchSaved) {
+              onBatchSaved({
+                  label: batchLabel,
+                  imageUrls: savedUrls,
+                  coverIndex,
+                  canvasId: currentCanvasId || undefined,
+                  canvasName,
+                  isVideo,
+              });
+          } else if (onImageGenerated) {
+              const coverUrl = savedUrls[Math.min(coverIndex, savedUrls.length - 1)] || savedUrls[0];
+              onImageGenerated(coverUrl, batchLabel, currentCanvasId || undefined, canvasName, isVideo);
+          }
+      }).catch(err => console.error('[批量保存] 异步保存异常:', err));
+  }, [onImageGenerated, onBatchSaved, currentCanvasId, canvasName]);
+
   // --- 批量生成：先创建 N 个 image 节点并执行，全部完成后合并为一个预览节点 ---
   const handleBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
       updateNode(sourceNodeId, { status: 'running' });
@@ -2005,7 +2197,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               }
               if (!signal.aborted) {
                   updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
-                  if (result && onImageGenerated) onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
               }
           } catch (err) {
               if (!signal.aborted) updateNode(nodeId, { status: 'error' });
@@ -2040,6 +2231,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, singleConn]);
           nodesRef.current = [...nodesRef.current, singleNode];
           connectionsRef.current = [...connectionsRef.current, singleConn];
+          // 单张结果同步到桌面
           if (contents[0] && onImageGenerated) onImageGenerated(contents[0], combinedPrompt, currentCanvasId || undefined, canvasName);
       } else {
           const previewNodeId = uuid();
@@ -2060,18 +2252,21 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, previewConn]);
           nodesRef.current = [...nodesRef.current, previewNode];
           connectionsRef.current = [...connectionsRef.current, previewConn];
+          // 异步批量保存到桌面子文件夹（封面为第一张，不阻塞画布）
+          const promptLabel = combinedPrompt.trim().slice(0, 15) || '批量生成';
+          saveBatchToDesktopFolder(contents, 0, promptLabel, false);
           console.log(`[批量生成] 全部完成，已合并为预览节点共 ${contents.length} 张`);
       }
       updateNode(sourceNodeId, { status: 'completed' });
       saveCurrentCanvas();
   };
 
-  // --- BP/Idea节点批量执行：自动创建图像节点并生成 ---
+  // --- BP节点批量执行：自动创建图像节点并生成 ---
   const handleBpIdeaBatchExecute = async (sourceNodeId: string, sourceNode: CanvasNode, count: number) => {
       // 立即标记源节点为 running，防止重复点击
       updateNode(sourceNodeId, { status: 'running' });
       
-      console.log(`[BP/Idea批量] 开始生成 ${count} 个图像节点`);
+      console.log(`[BP批量] 开始生成 ${count} 个图像节点`);
       
       // 获取输入
       const inputs = resolveInputs(sourceNodeId);
@@ -2136,10 +2331,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           for (const [name, result] of Object.entries(agentResults)) {
               finalPrompt = finalPrompt.split(`{${name}}`).join(result);
           }
-      } else if (sourceNode.type === 'idea') {
-          // Idea节点：直接使用content作为提示词
-          finalPrompt = sourceNode.content || '';
-          settings = sourceNode.data?.settings || {};
       }
       
       if (!finalPrompt) {
@@ -2199,7 +2390,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               }
               if (!signal.aborted) {
                   updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
-                  if (result && onImageGenerated) onImageGenerated(result, finalPrompt, currentCanvasId || undefined, canvasName);
               }
           } catch (err) {
               if (!signal.aborted) updateNode(nodeId, { status: 'error' });
@@ -2234,6 +2424,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, singleConn]);
           nodesRef.current = [...nodesRef.current, singleNode];
           connectionsRef.current = [...connectionsRef.current, singleConn];
+          // 单张结果同步到桌面
           if (contents[0] && onImageGenerated) onImageGenerated(contents[0], finalPrompt, currentCanvasId || undefined, canvasName);
       } else {
           const previewNodeId = uuid();
@@ -2254,7 +2445,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, previewConn]);
           nodesRef.current = [...nodesRef.current, previewNode];
           connectionsRef.current = [...connectionsRef.current, previewConn];
-          console.log(`[BP/Idea批量] 全部完成，已合并为预览节点共 ${contents.length} 张`);
+          // 异步批量保存到桌面子文件夹
+          const promptLabel = finalPrompt.trim().slice(0, 15) || 'BP批量';
+          saveBatchToDesktopFolder(contents, 0, promptLabel, false);
+          console.log(`[BP批量] 全部完成，已合并为预览节点共 ${contents.length} 张`);
       }
       updateNode(sourceNodeId, { status: 'completed' });
       saveCurrentCanvas();
@@ -2314,7 +2508,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               if (!signal.aborted && result) {
                   const metadata = await extractImageMetadata(result);
                   updateNode(nodeId, { content: result, status: 'completed', data: { imageMetadata: metadata } });
-                  if (onImageGenerated) onImageGenerated(result, sourceNode.type === 'remove-bg' ? '抠图结果' : '放大结果', currentCanvasId || undefined, canvasName);
               } else if (!signal.aborted) {
                   updateNode(nodeId, { status: 'error' });
               }
@@ -2351,7 +2544,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, singleConn]);
           nodesRef.current = [...nodesRef.current, singleNode];
           connectionsRef.current = [...connectionsRef.current, singleConn];
-          if (contents[0] && onImageGenerated) onImageGenerated(contents[0], '工具输出', currentCanvasId || undefined, canvasName);
       } else {
           const previewNodeId = uuid();
           const previewNode: CanvasNode = {
@@ -2371,6 +2563,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, previewConn]);
           nodesRef.current = [...nodesRef.current, previewNode];
           connectionsRef.current = [...connectionsRef.current, previewConn];
+          // 异步批量保存到桌面子文件夹
+          const toolLabel = sourceNode.type === 'remove-bg' ? '批量抠图' : '批量高清';
+          saveBatchToDesktopFolder(contents, 0, toolLabel, false);
           console.log(`[工具批量] 全部完成，已合并为预览节点共 ${contents.length} 张`);
       }
       updateNode(sourceNodeId, { status: 'completed' });
@@ -2646,6 +2841,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, previewConn]);
           nodesRef.current = [...nodesRef.current, previewNode];
           connectionsRef.current = [...connectionsRef.current, previewConn];
+          // 异步批量保存视频到桌面子文件夹
+          saveBatchToDesktopFolder(contents, 0, '批量视频', true);
           console.log(`[视频批量] 全部完成，已合并为预览节点共 ${contents.length} 个`);
       }
       saveCurrentCanvas();
@@ -2693,8 +2890,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           return;
       }
       
-      // 工具节点批量执行：自动创建图像节点
-      if (batchCount >= 1 && ['remove-bg', 'upscale'].includes(node.type)) {
+      // 工具节点批量执行（>1时才走批量路径，=1时走下方单次执行路径）
+      if (batchCount > 1 && ['remove-bg', 'upscale'].includes(node.type)) {
           try {
               await handleToolBatchExecute(nodeId, node, batchCount);
           } finally {
@@ -2703,8 +2900,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           return;
       }
       
-      // BP/Idea节点批量执行：自动创建图像节点
-      if (batchCount >= 1 && ['bp', 'idea'].includes(node.type)) {
+      // BP节点批量执行：自动创建图像节点
+      if (batchCount >= 1 && node.type === 'bp') {
           try {
               await handleBpIdeaBatchExecute(nodeId, node, batchCount);
           } finally {
@@ -2786,11 +2983,6 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       
                       updateNode(nodeId, { status: 'completed', data: { ...node.data, outputImageUrl: outputDataUrl } });
                       saveCurrentCanvas();
-                      
-                      // 同步到桌面
-                      if (onImageGenerated) {
-                          onImageGenerated(outputDataUrl, '画板输出', currentCanvasId || undefined, canvasName);
-                      }
                   } else {
                       console.warn('[DrawingBoard] 无有效输出内容');
                       updateNode(nodeId, { status: 'error' });
@@ -2859,20 +3051,13 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               // 上游图片
               const inputImages = inputs.images;
               
-              // 从上游节点获取设置（支持idea节点）
+              // 从上游节点获取设置
               let upstreamSettings: any = null;
               let upstreamPrompt = '';
               const inputConnections = connectionsRef.current.filter(c => c.toNode === nodeId);
               for (const conn of inputConnections) {
                   const upstreamNode = nodesRef.current.find(n => n.id === conn.fromNode);
-                  if (upstreamNode?.type === 'idea' && upstreamNode.data?.settings) {
-                      // 从idea节点继承设置
-                      upstreamSettings = upstreamNode.data.settings;
-                      if (!nodePrompt && upstreamNode.content) {
-                          upstreamPrompt = upstreamNode.content;
-                      }
-                      break;
-                  } else if (upstreamNode?.type === 'image' && upstreamNode.data?.prompt && !nodePrompt) {
+                  if (upstreamNode?.type === 'image' && upstreamNode.data?.prompt && !nodePrompt) {
                       // 从上游image节点继承prompt
                       upstreamPrompt = upstreamNode.data.prompt;
                   }
@@ -3075,13 +3260,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                            });
                            updateNode(nodeId, { status: 'completed' });
                            
+                           // 同步到桌面对应画布文件夹
+                           if (onImageGenerated) onImageGenerated(result, 'Magic结果', currentCanvasId || undefined, canvasName);
+                           
                            // 🔧 保存画布
                            saveCurrentCanvas();
-                           
-                           // 🔧 同步到桌面
-                           if (onImageGenerated) {
-                               onImageGenerated(result, combinedPrompt || 'Magic结果', currentCanvasId || undefined, canvasName);
-                           }
                        } else {
                            updateNode(outputNodeId, { status: 'error' });
                            updateNode(nodeId, { status: 'error' });
@@ -3404,8 +3587,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                    }
                }
           }
-          else if (node.type === 'idea' || node.type === 'text') {
-               // Text/Idea节点：容器模式 - 接收上游文本内容
+          else if (node.type === 'text') {
+               // Text节点：容器模式 - 接收上游文本内容
                // 重新获取输入（因为上游可能刚执行完）
                const freshInputs = resolveInputs(nodeId);
                const inputTexts = freshInputs.texts;
@@ -3522,13 +3705,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   if (!signal.aborted) {
                       updateNode(nodeId, { content: resized, status: 'completed' });
                       
+                      // 同步到桌面对应画布文件夹
+                      if (resized && onImageGenerated) onImageGenerated(resized, 'Resize结果', currentCanvasId || undefined, canvasName);
+                      
                       // 🔧 保存画布
                       saveCurrentCanvas();
-                      
-                      // 🔧 同步到桌面
-                      if (resized && onImageGenerated) {
-                          onImageGenerated(resized, 'Resize结果', currentCanvasId || undefined, canvasName);
-                      }
                   }
               }
           }
@@ -3591,13 +3772,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                           // 5. 标记工具节点完成
                           updateNode(nodeId, { status: 'completed' });
                           
+                          // 同步到桌面对应画布文件夹
+                          if (onImageGenerated) onImageGenerated(result, '抠图结果', currentCanvasId || undefined, canvasName);
+                          
                           // 🔧 保存画布
                           saveCurrentCanvas();
-                          
-                          // 🔧 同步到桌面
-                          if (onImageGenerated) {
-                              onImageGenerated(result, '抠图结果', currentCanvasId || undefined, canvasName);
-                          }
                       } else {
                           // API失败,更新输出节点为error
                           updateNode(outputNodeId, { status: 'error' });
@@ -3676,13 +3855,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                           // 5. 标记工具节点完成
                           updateNode(nodeId, { status: 'completed' });
                           
+                          // 同步到桌面对应画布文件夹
+                          if (onImageGenerated) onImageGenerated(result, '放大结果', currentCanvasId || undefined, canvasName);
+                          
                           // 🔧 保存画布
                           saveCurrentCanvas();
-                          
-                          // 🔧 同步到桌面
-                          if (onImageGenerated) {
-                              onImageGenerated(result, '放大结果', currentCanvasId || undefined, canvasName);
-                          }
                       } else {
                           console.error(`[Upscale] API返回失败,result为空`);
                           // API失败,更新输出节点为error
@@ -4032,6 +4209,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                                   setConnections(prev => [...prev, newConn]);
                                   nodesRef.current = [...nodesRef.current, previewNode];
                                   connectionsRef.current = [...connectionsRef.current, newConn];
+                                  // 异步批量保存到桌面子文件夹
+                                  const hasVideo = previewItemTypes.some(t => t === 'video');
+                                  saveBatchToDesktopFolder(previewItems, 0, 'ComfyUI批量', hasVideo);
                               }
                               saveCurrentCanvas();
                               return;
@@ -4520,6 +4700,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                           setConnections(prev => [...prev, previewConn]);
                           nodesRef.current = [...nodesRef.current, previewNode];
                           connectionsRef.current = [...connectionsRef.current, previewConn];
+                          // 异步批量保存到桌面子文件夹
+                          const hasVideoContent = contents.some(c => isValidVideo(c));
+                          saveBatchToDesktopFolder(contents, 0, `RH_${appName.slice(0, 10)}`, hasVideoContent);
                       }
                   }
 
@@ -4570,88 +4753,77 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    console.log('[Canvas] DragOver triggered');
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  // 供浮动面板使用：在面板上释放时也视为在画布上放置（面板会转发 drop 事件）
+  const handleDropOnCanvasOrPanel = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    
-    console.log('[Canvas] Drop event, types:', Array.from(e.dataTransfer.types));
-    
-    // 尝试从 dataTransfer 获取
-    let type = e.dataTransfer.getData('nodeType') as NodeType;
-    console.log('[Canvas] nodeType from dataTransfer:', type);
-    
-    // 备用：从 text/plain 获取
-    if (!type) {
-      type = e.dataTransfer.getData('text/plain') as NodeType;
-      console.log('[Canvas] nodeType from text/plain:', type);
-    }
-    
-    // 备用：从全局状态获取
-    if (!type && (window as any).__draggingNodeType) {
-      type = (window as any).__draggingNodeType as NodeType;
-      console.log('[Canvas] nodeType from window:', type);
-      (window as any).__draggingNodeType = null;
-    }
-    
-    // Calculate drop position relative to canvas
+    e.stopPropagation();
     const container = containerRef.current;
     if (!container) return;
-    
     const rect = container.getBoundingClientRect();
-    const x = (e.clientX - rect.left - canvasOffset.x) / scale - 150; // Center node roughly
+    const x = (e.clientX - rect.left - canvasOffset.x) / scale - 150;
     const y = (e.clientY - rect.top - canvasOffset.y) / scale - 100;
 
-    if (type && ['image', 'text', 'video', 'llm', 'idea', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'comfyui'].includes(type)) {
-        console.log('[Drop] 创建节点:', type, '位置:', x, y);
-        addNode(type, '', { x, y });
+    let type = e.dataTransfer.getData('nodeType') as NodeType;
+    if (!type) type = e.dataTransfer.getData('text/plain') as NodeType;
+    if (!type && (window as any).__draggingNodeType) {
+      type = (window as any).__draggingNodeType as NodeType;
+      (window as any).__draggingNodeType = null;
+    }
+
+    const mediaUrl = e.dataTransfer.getData('mediaUrl');
+    if (mediaUrl && (type === 'image' || type === 'video-output')) {
+      addNode(type === 'video-output' ? 'video-output' : 'image', mediaUrl, { x, y });
+      return;
+    }
+    const creativeIdeaId = e.dataTransfer.getData('creativeIdeaId');
+    if (creativeIdeaId && creativeIdeas) {
+      const idea = creativeIdeas.find(i => String(i.id) === creativeIdeaId);
+      if (idea) {
+        handleApplyCreativeIdea(idea);
         return;
+      }
     }
-
-    // 2. Handle File Drop (OS Files)
+    if (type && ['image', 'text', 'video', 'video-output', 'llm', 'relay', 'edit', 'remove-bg', 'upscale', 'resize', 'bp', 'comfyui'].includes(type)) {
+      addNode(type, '', { x, y });
+      return;
+    }
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        Array.from(e.dataTransfer.files).forEach((item, index) => {
-            const file = item as File;
-            const offsetX = x + (index * 20); // Stagger multiple files slightly
-            const offsetY = y + (index * 20);
-
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    if (ev.target?.result) {
-                        addNode('image', ev.target.result as string, { x: offsetX, y: offsetY });
-                    }
-                };
-                reader.readAsDataURL(file);
-            } else if (file.type.startsWith('video/')) {
-                // 🆕 视频拖入：创建 video-output 节点直接展示视频
-                const reader = new FileReader();
-                reader.onload = async (ev) => {
-                    if (ev.target?.result) {
-                        // 保存视频到 output 目录
-                        const base64Data = ev.target.result as string;
-                        try {
-                            const { saveVideoToOutput } = await import('@/services/api/files');
-                            const result = await saveVideoToOutput(base64Data, `video_${Date.now()}.mp4`);
-                            if (result.success && result.data?.url) {
-                                addNode('video-output', result.data.url, { x: offsetX, y: offsetY }, file.name);
-                            } else {
-                                // 保存失败，直接使用 base64
-                                addNode('video-output', base64Data, { x: offsetX, y: offsetY }, file.name);
-                            }
-                        } catch (err) {
-                            // 保存失败，直接使用 base64
-                            addNode('video-output', base64Data, { x: offsetX, y: offsetY }, file.name);
-                        }
-                    }
-                };
-                reader.readAsDataURL(file);
+      Array.from(e.dataTransfer.files).forEach((item, index) => {
+        const file = item as File;
+        const offsetX = x + (index * 20);
+        const offsetY = y + (index * 20);
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            if (ev.target?.result) addNode('image', ev.target.result as string, { x: offsetX, y: offsetY });
+          };
+          reader.readAsDataURL(file);
+        } else if (file.type.startsWith('video/')) {
+          const reader = new FileReader();
+          reader.onload = async (ev) => {
+            if (!ev.target?.result) return;
+            const base64Data = ev.target.result as string;
+            try {
+              const { saveVideoToOutput } = await import('@/services/api/files');
+              const result = await saveVideoToOutput(base64Data, `video_${Date.now()}.mp4`);
+              const url = result.success && result.data?.url ? result.data.url : base64Data;
+              addNode('video-output', url, { x: offsetX, y: offsetY }, file.name);
+            } catch {
+              addNode('video-output', base64Data, { x: offsetX, y: offsetY }, file.name);
             }
-        });
+          };
+          reader.readAsDataURL(file);
+        }
+      });
     }
+  }, [canvasOffset, scale, creativeIdeas, handleApplyCreativeIdea, addNode]);
+
+  const handleDrop = (e: React.DragEvent) => {
+    handleDropOnCanvasOrPanel(e);
   };
 
   // --- INTERACTION HANDLERS ---
@@ -4858,9 +5030,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setSelectedNodeIds(newSelection);
       }
       
-      // 选中 image 节点时打开浮动生成面板
+      // 选中 image/preview 节点时打开浮动面板（生成配置或工具箱）
       const selectedNode = nodesRef.current.find(n => n.id === id);
-      if (selectedNode?.type === 'image' && !isMulti && newSelection.size === 1) {
+      if (!isMulti && newSelection.size === 1 && (
+          selectedNode?.type === 'image' ||
+          (selectedNode?.type === 'preview' && selectedNode.content)
+      )) {
           setImageGenPanelNodeId(id);
       } else {
           setImageGenPanelNodeId(null);
@@ -4912,7 +5087,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               );
               
               // 检查源节点是否是文字节点
-              const isTextNode = sourceNode.type === 'text' || sourceNode.type === 'idea' || sourceNode.type === 'llm';
+              const isTextNode = sourceNode.type === 'text' || sourceNode.type === 'llm';
               
               // 特殊处理：连接到封面图区域（即时更新显示）
               if (portKey === 'cover' && hasImageContent) {
@@ -5252,30 +5427,44 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       }
   };
 
-  // --- CONTEXT MENU ---
+  // --- CONTEXT MENU ---（素材库/创意文本库为外部导入工具，其内右键不弹出画布“保存/删除”菜单）
   const handleContextMenu = (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-canvas-lib-panel], [data-canvas-lib-root], [data-media-lib-panel], [data-media-lib-root]')) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+      }
       e.preventDefault();
       setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const contextOptions = [
+  const contextOptionsNoSelection = [
+      { label: "请先选择节点", icon: <Icons.Move />, action: () => setContextMenu(null) }
+  ];
+
+  const contextOptionsWithSelection = [
       { 
-          label: "Save as Preset", 
+          label: "保存为画布流程", 
           icon: <Icons.Layers />, 
           action: () => {
               if (selectedNodeIds.size > 0) {
                   setNodesForPreset(nodes.filter(n => selectedNodeIds.has(n.id)));
-                  setShowPresetModal(true);
+              } else {
+                  setNodesForPreset([...nodes]);
               }
+              setShowPresetModal(true);
           }
       },
       {
-          label: "Delete Selection",
+          label: "删除选中",
           icon: <Icons.Close />,
           action: deleteSelection,
           danger: true
       }
   ];
+
+  const contextOptions = selectedNodeIds.size > 0 ? contextOptionsWithSelection : contextOptionsNoSelection;
 
   return (
     <div 
@@ -5808,10 +5997,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         )}
       </div>
 
-      {/* ImageGenPanel - 图片节点浮动生成面板 */}
+      {/* ImageGenPanel - 图片节点浮动面板（生成配置 / 工具箱双模式） */}
       {imageGenPanelNodeId && (() => {
         const panelNode = nodes.find(n => n.id === imageGenPanelNodeId);
-        if (!panelNode || panelNode.type !== 'image') return null;
+        if (!panelNode || (panelNode.type !== 'image' && panelNode.type !== 'preview')) return null;
         const pos = getImageGenPanelPosition(imageGenPanelNodeId);
         return (
           <ImageGenPanel
@@ -5823,11 +6012,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             onExecute={(id) => handleExecuteNode(id)}
             onClose={() => setImageGenPanelNodeId(null)}
             isRunning={panelNode.status === 'running'}
+            onCreateToolNode={handleCreateToolNode}
           />
         );
       })()}
 
-      {/* 右侧创意库 - 浮动面板，可拖拽/可锁定 */}
+      {/* 右侧创意文本库 - 浮动面板，可拖拽/可锁定 */}
       {(() => {
         const filteredIdeas = (creativeIdeas || []).filter(idea => {
           if (libraryFilter === 'all') return true;
@@ -5838,9 +6028,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         });
 
         if (isCreativeLibraryCollapsed) {
-          /* 收起态 - 浮动小图标 */
+          /* 收起态 - 浮动小图标（标记为导入工具，不触发画布右键菜单） */
           return (
             <div
+              data-canvas-lib-root
               className="select-none flex items-center gap-1 rounded-2xl border shadow-lg"
               style={{
                 ...getCanvasFloatStyle(canvasLibraryIconPos),
@@ -5865,7 +6056,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                 onClick={() => setIsCreativeLibraryCollapsed(false)}
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
                 style={{ color: '#60a5fa' }}
-                title="展开创意库"
+                title="展开创意文本库"
               >
                 <Icons.Layers size={16} />
               </button>
@@ -5881,7 +6072,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           );
         }
 
-        /* 展开态 - 浮动面板，可拖拽/可拉伸调整大小 */
+        /* 展开态 - 浮动面板，可拖拽/可拉伸调整大小；支持在面板上释放拖拽内容 */
         return (
           <div
             data-canvas-lib-panel
@@ -5898,6 +6089,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               overflow: 'hidden',
             }}
             onMouseDown={(e) => e.stopPropagation()}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+            onDrop={(e) => handleDropOnCanvasOrPanel(e)}
           >
             {/* 左侧边缘拖拽调宽 */}
             <div
@@ -5939,6 +6132,70 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                 canvasLibResizeRef.current = { edge: 'bottom-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
               }}
             />
+            {/* 右侧边缘拖拽调宽 */}
+            <div
+              className="absolute right-0 top-2 bottom-2 w-1.5 cursor-ew-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'right', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-r transition-colors group-hover:${isLightCanvas ? 'bg-blue-400/40' : 'bg-blue-500/40'}`} />
+            </div>
+            {/* 上侧边缘拖拽调高 */}
+            <div
+              className="absolute top-0 left-2 right-2 h-1.5 cursor-ns-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ns-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'top', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-t transition-colors group-hover:${isLightCanvas ? 'bg-blue-400/40' : 'bg-blue-500/40'}`} />
+            </div>
+            {/* 左上角 */}
+            <div
+              className="absolute top-0 left-0 w-3 h-3 cursor-nwse-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nwse-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'top-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+            {/* 右上角 */}
+            <div
+              className="absolute top-0 right-0 w-3 h-3 cursor-nesw-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nesw-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'top-right', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+            {/* 右下角 */}
+            <div
+              className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nwse-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'bottom-right', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
 
             {/* 拖拽栏 + 控制按钮 */}
             <div className={`flex items-center gap-1 px-2 py-1.5 flex-shrink-0 border-b ${isLightCanvas ? 'border-gray-200' : 'border-white/10'}`}>
@@ -5952,7 +6209,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                 </div>
               )}
               <Icons.Layers size={14} className="text-blue-400 flex-shrink-0" />
-              <span className={`text-xs font-bold flex-1 min-w-0 truncate ${isLightCanvas ? 'text-gray-900' : 'text-white'}`}>创意库</span>
+              <span className={`text-xs font-bold flex-1 min-w-0 truncate ${isLightCanvas ? 'text-gray-900' : 'text-white'}`}>创意文本库</span>
               <span className={`text-[10px] flex-shrink-0 ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>({(creativeIdeas || []).length})</span>
               {/* 锁定 */}
               <button
@@ -5967,7 +6224,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               <button
                 onClick={() => setIsCreativeLibraryCollapsed(true)}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-all ${isLightCanvas ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100' : 'text-zinc-500 hover:text-white hover:bg-white/10'}`}
-                title="收起创意库"
+                title="收起创意文本库"
               >
                 <Icons.Close size={10} />
               </button>
@@ -5978,8 +6235,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               {[
                 { key: 'all', label: '全部' },
                 { key: 'favorite', label: '收藏' },
-                { key: 'bp', label: 'BP' },
-                { key: 'workflow', label: '工作流' },
+                { key: 'bp', label: '变量模式' },
+                { key: 'workflow', label: '画布流程' },
               ].map(({ key, label }) => (
                 <button
                   key={key}
@@ -5997,8 +6254,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               ))}
             </div>
 
-            {/* 创意列表 */}
-            <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1.5" onWheel={(e) => e.stopPropagation()}>
+            {/* 创意列表 - 可点击应用，也可拖拽到画布 */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2 space-y-1.5 pointer-events-auto" onWheel={(e) => e.stopPropagation()}>
               {filteredIdeas.length === 0 ? (
                 <div className={`text-center py-10 text-xs ${isLightCanvas ? 'text-gray-400' : 'text-zinc-500'}`}>
                   暂无创意
@@ -6007,8 +6264,15 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                 filteredIdeas.map((idea) => (
                   <button
                     key={idea.id}
+                    type="button"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('creativeIdeaId', String(idea.id));
+                      e.dataTransfer.setData('nodeType', idea.isWorkflow ? 'idea' : idea.isBP ? 'bp' : 'text');
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
                     onClick={() => handleApplyCreativeIdea(idea)}
-                    className={`w-full text-left p-2 rounded-lg border transition-all ${
+                    className={`w-full text-left p-2 rounded-lg border transition-all cursor-pointer ${
                       idea.isWorkflow
                         ? 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20'
                         : idea.isBP
@@ -6030,8 +6294,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                             {idea.isFavorite && '* '}
                             {idea.title}
                           </span>
-                          {idea.isWorkflow && <span className="text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded flex-shrink-0">WF</span>}
-                          {idea.isBP && <span className="text-[8px] bg-blue-500/30 text-blue-300 px-1 rounded flex-shrink-0">BP</span>}
+                          {idea.isWorkflow && <span className="text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded flex-shrink-0">画布</span>}
+                          {idea.isBP && <span className="text-[8px] bg-blue-500/30 text-blue-300 px-1 rounded flex-shrink-0">变量</span>}
                         </div>
                         <div className={`text-[9px] truncate ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
                           {idea.isBP && idea.bpFields
@@ -6050,6 +6314,337 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         );
       })()}
 
+      {/* 素材库浮动面板 - 按文件夹/画布分类，可拖拽图片/视频到画布 */}
+      {(() => {
+        const items = desktopItems || [];
+        const itemMap = new Map(items.map(i => [i.id, i]));
+        const folders = items.filter((i): i is DesktopFolderItem => i.type === 'folder');
+        const itemIdsInFolders = new Set(folders.flatMap(f => f.itemIds));
+        const topLevelMedia = items.filter((i): i is DesktopImageItem | DesktopVideoItem =>
+          (i.type === 'image' || i.type === 'video') && !itemIdsInFolders.has(i.id)
+        );
+        const groups: { id: string; label: string; items: (DesktopImageItem | DesktopVideoItem)[] }[] = [];
+        if (topLevelMedia.length > 0) groups.push({ id: '_top', label: '未分类', items: topLevelMedia });
+        folders.forEach(f => {
+          const groupItems = f.itemIds
+            .map(id => itemMap.get(id))
+            .filter((i): i is DesktopImageItem | DesktopVideoItem => !!i && (i.type === 'image' || i.type === 'video'));
+          if (groupItems.length > 0) {
+            const label = f.linkedCanvasId ? `画布: ${f.name}` : `文件夹: ${f.name}`;
+            groups.push({ id: f.id, label, items: groupItems });
+          }
+        });
+        const applyTypeFilter = (list: (DesktopImageItem | DesktopVideoItem)[]) => {
+          if (mediaLibraryFilter === 'all') return list;
+          if (mediaLibraryFilter === 'image') return list.filter(i => i.type === 'image');
+          if (mediaLibraryFilter === 'video') return list.filter(i => i.type === 'video');
+          return list;
+        };
+        const totalFiltered = groups.reduce((sum, g) => sum + applyTypeFilter(g.items).length, 0);
+
+        if (isMediaLibraryCollapsed) {
+          /* 收起态（标记为导入工具，不触发画布右键菜单） */
+          return (
+            <div
+              data-media-lib-root
+              className="select-none flex items-center gap-1 rounded-2xl border shadow-lg"
+              style={{
+                ...getCanvasFloatStyle(mediaLibraryIconPos),
+                background: isLightCanvas ? 'rgba(255,255,255,0.9)' : 'rgba(20,20,25,0.85)',
+                borderColor: isLightCanvas ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+                backdropFilter: 'blur(16px)',
+                padding: '4px 6px',
+                pointerEvents: 'auto',
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {!mediaLibraryIconLocked && (
+                <div
+                  className="cursor-grab active:cursor-grabbing flex items-center"
+                  style={{ color: isLightCanvas ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.25)' }}
+                  onMouseDown={(e) => { const el = e.currentTarget.parentElement; if (el) startMediaLibDrag('icon', e, el); }}
+                >
+                  <Icons.GripVertical size={10} />
+                </div>
+              )}
+              <button
+                onClick={() => setIsMediaLibraryCollapsed(false)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                style={{ color: '#22c55e' }}
+                title="展开素材库"
+              >
+                <Icons.Image size={16} />
+              </button>
+              <button
+                onClick={() => setMediaLibraryIconLocked(!mediaLibraryIconLocked)}
+                className="w-4 h-4 rounded flex items-center justify-center transition-all hover:scale-110"
+                style={{ color: mediaLibraryIconLocked ? '#22c55e' : (isLightCanvas ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)') }}
+                title={mediaLibraryIconLocked ? '点击解锁' : '点击锁定'}
+              >
+                {mediaLibraryIconLocked ? <Icons.Lock size={8} /> : <Icons.Unlock size={8} />}
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            data-media-lib-panel
+            className="select-none flex flex-col rounded-2xl border shadow-2xl"
+            style={{
+              ...getCanvasFloatStyle(mediaLibraryPos),
+              width: mediaLibraryWidth,
+              height: mediaLibraryHeight > 0 ? mediaLibraryHeight : 'calc(100vh - 24px)',
+              maxHeight: 'calc(100vh - 10px)',
+              background: isLightCanvas ? 'rgba(255,255,255,0.97)' : 'rgba(20,20,25,0.95)',
+              borderColor: isLightCanvas ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+              backdropFilter: 'blur(20px)',
+              pointerEvents: 'auto',
+              overflow: 'hidden',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+            onDrop={(e) => handleDropOnCanvasOrPanel(e)}
+          >
+            <div
+              className="absolute left-0 top-2 bottom-2 w-1.5 cursor-ew-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-l transition-colors group-hover:${isLightCanvas ? 'bg-green-400/40' : 'bg-green-500/40'}`} />
+            </div>
+            <div
+              className="absolute bottom-0 left-2 right-2 h-1.5 cursor-ns-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ns-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'bottom', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-b transition-colors group-hover:${isLightCanvas ? 'bg-green-400/40' : 'bg-green-500/40'}`} />
+            </div>
+            <div
+              className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nesw-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'bottom-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+            {/* 右侧边缘拖拽调宽 */}
+            <div
+              className="absolute right-0 top-2 bottom-2 w-1.5 cursor-ew-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'right', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-r transition-colors group-hover:${isLightCanvas ? 'bg-green-400/40' : 'bg-green-500/40'}`} />
+            </div>
+            {/* 上侧边缘拖拽调高 */}
+            <div
+              className="absolute top-0 left-2 right-2 h-1.5 cursor-ns-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ns-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'top', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-t transition-colors group-hover:${isLightCanvas ? 'bg-green-400/40' : 'bg-green-500/40'}`} />
+            </div>
+            {/* 左上角 */}
+            <div
+              className="absolute top-0 left-0 w-3 h-3 cursor-nwse-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nwse-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'top-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+            {/* 右上角 */}
+            <div
+              className="absolute top-0 right-0 w-3 h-3 cursor-nesw-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nesw-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'top-right', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+            {/* 右下角 */}
+            <div
+              className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nwse-resize'; document.body.style.userSelect = 'none';
+                mediaLibResizeRef.current = { edge: 'bottom-right', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: mediaLibraryWidth, h: mediaLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+            <div className={`flex items-center gap-1 px-2 py-1.5 flex-shrink-0 border-b ${isLightCanvas ? 'border-gray-200' : 'border-white/10'}`}>
+              {!mediaLibraryLocked && (
+                <div
+                  className="cursor-grab active:cursor-grabbing flex items-center"
+                  style={{ color: isLightCanvas ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.25)' }}
+                  onMouseDown={(e) => { const el = e.currentTarget.closest('[data-media-lib-panel]') as HTMLElement; if (el) startMediaLibDrag('panel', e, el); }}
+                >
+                  <Icons.GripVertical size={12} />
+                </div>
+              )}
+              <Icons.Image size={14} className="text-green-500 flex-shrink-0" />
+              <span className={`text-xs font-bold flex-1 min-w-0 truncate ${isLightCanvas ? 'text-gray-900' : 'text-white'}`}>素材库</span>
+              <span className={`text-[10px] flex-shrink-0 ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>({totalFiltered})</span>
+              <button
+                onClick={() => setMediaLibraryLocked(!mediaLibraryLocked)}
+                className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110"
+                style={{ color: mediaLibraryLocked ? '#22c55e' : (isLightCanvas ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.25)') }}
+                title={mediaLibraryLocked ? '点击解锁（可拖拽）' : '点击锁定（防止误拖动）'}
+              >
+                {mediaLibraryLocked ? <Icons.Lock size={10} /> : <Icons.Unlock size={10} />}
+              </button>
+              <button
+                onClick={() => setIsMediaLibraryCollapsed(true)}
+                className={`w-5 h-5 rounded flex items-center justify-center transition-all ${isLightCanvas ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100' : 'text-zinc-500 hover:text-white hover:bg-white/10'}`}
+                title="收起素材库"
+              >
+                <Icons.Close size={10} />
+              </button>
+            </div>
+            <div className={`px-3 py-2 flex gap-1 flex-wrap border-b flex-shrink-0 ${isLightCanvas ? 'border-gray-100' : 'border-white/5'}`}>
+              {[
+                { key: 'all', label: '全部' },
+                { key: 'image', label: '图片' },
+                { key: 'video', label: '视频' },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setMediaLibraryFilter(key as typeof mediaLibraryFilter)}
+                  className={`px-2 py-1 text-[10px] rounded-lg transition-all ${
+                    mediaLibraryFilter === key
+                      ? 'bg-green-500/20 text-green-400 border border-green-500/40'
+                      : isLightCanvas
+                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-transparent'
+                        : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-transparent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2 space-y-3 pointer-events-auto" onWheel={(e) => e.stopPropagation()}>
+              {totalFiltered === 0 ? (
+                <div className={`text-center py-10 text-xs ${isLightCanvas ? 'text-gray-400' : 'text-zinc-500'}`}>
+                  暂无素材，请在素材库 Tab 中添加
+                </div>
+              ) : (
+                groups.map(group => {
+                  const list = applyTypeFilter(group.items);
+                  if (list.length === 0) return null;
+                  return (
+                    <div key={group.id} className="space-y-1.5">
+                      <div className={`text-[10px] font-semibold truncate px-1 ${isLightCanvas ? 'text-gray-500' : 'text-zinc-400'}`}>
+                        {group.label} ({list.length})
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {list.map((item) => {
+                          const url = item.type === 'image' ? item.imageUrl : item.videoUrl;
+                          const thumb = item.type === 'image' ? (item.thumbnailUrl || item.imageUrl) : (item.thumbnailUrl || item.videoUrl);
+                          const nodeType = item.type === 'image' ? 'image' : 'video-output';
+                          return (
+                            <div
+                              key={item.id}
+                              role="button"
+                              tabIndex={0}
+                              draggable
+                              onDragStart={(e) => {
+                                mediaDragStartedRef.current = true;
+                                e.dataTransfer.setData('nodeType', nodeType);
+                                e.dataTransfer.setData('mediaUrl', url);
+                                e.dataTransfer.effectAllowed = 'copy';
+                              }}
+                              onDragEnd={() => { mediaDragStartedRef.current = false; }}
+                              onClick={() => {
+                                if (mediaDragStartedRef.current) {
+                                  mediaDragStartedRef.current = false;
+                                  return;
+                                }
+                                handleApplyMediaItem(nodeType, url, item.name);
+                              }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
+                              className={`rounded-lg border overflow-hidden cursor-grab active:cursor-grabbing transition-all outline-none ${
+                                isLightCanvas ? 'bg-gray-50 border-gray-200 hover:bg-gray-100' : 'bg-white/5 border-white/5 hover:bg-white/10'
+                              }`}
+                              title={`点击或拖拽到画布 · ${item.name}`}
+                            >
+                              <div className="aspect-square relative bg-black/20">
+                                {item.type === 'image' ? (
+                                  <img src={thumb} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                                ) : (
+                                  <video src={thumb} className="w-full h-full object-cover pointer-events-none" muted playsInline preload="metadata" draggable={false} />
+                                )}
+                              </div>
+                              <div className={`px-1.5 py-1 truncate text-[9px] ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>
+                                {item.name}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 底部快捷键提示条 */}
+      <div 
+        className={`absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full border pointer-events-none select-none z-30 transition-all duration-300 ${
+          isLightCanvas 
+            ? 'bg-white/80 border-gray-200/60 text-gray-400' 
+            : 'bg-black/40 border-white/5 text-zinc-500'
+        }`}
+        style={{ backdropFilter: 'blur(12px)', fontSize: '10px' }}
+      >
+        <span><kbd className={`px-1 py-0.5 rounded text-[9px] font-mono ${isLightCanvas ? 'bg-gray-100 text-gray-500' : 'bg-white/10 text-zinc-400'}`}>Ctrl</kbd> + 拖动 = 框选</span>
+        <span className="opacity-30">|</span>
+        <span><kbd className={`px-1 py-0.5 rounded text-[9px] font-mono ${isLightCanvas ? 'bg-gray-100 text-gray-500' : 'bg-white/10 text-zinc-400'}`}>Shift</kbd> + 点击 = 多选</span>
+        <span className="opacity-30">|</span>
+        <span>右键 = 保存 / 删除</span>
+        <span className="opacity-30">|</span>
+        <span><kbd className={`px-1 py-0.5 rounded text-[9px] font-mono ${isLightCanvas ? 'bg-gray-100 text-gray-500' : 'bg-white/10 text-zinc-400'}`}>Space</kbd> + 拖动 = 平移</span>
+        <span className="opacity-30">|</span>
+        <span>滚轮 = 缩放</span>
+      </div>
+
       {/* Context Menu */}
       {contextMenu && (
           <ContextMenu 
@@ -6057,6 +6652,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             y={contextMenu.y} 
             onClose={() => setContextMenu(null)}
             options={contextOptions}
+            isLight={isLightCanvas}
           />
       )}
 

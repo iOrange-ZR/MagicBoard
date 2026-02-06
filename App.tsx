@@ -110,6 +110,8 @@ interface CanvasProps {
   setIsResultMinimized: (value: boolean) => void;
   // 画布图片生成回调
   onCanvasImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void;
+  // 画布批量保存回调（创建桌面子文件夹并放入全部图片）
+  onCanvasBatchSaved?: (opts: import('./components/PebblingCanvas').BatchSavedOptions) => void;
   // 画布创建回调
   onCanvasCreated?: (canvasId: string, canvasName: string) => void;
   // 画布删除回调
@@ -407,13 +409,13 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             
             {/* 帮助内容 */}
             <div className="space-y-4">
-              {/* 桌面使用技巧 */}
+              {/* 素材库使用技巧 */}
               <div 
                 className="p-4 rounded-xl"
                 style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}
               >
                 <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: isDark ? '#fff' : '#0f172a' }}>
-                  <span>🖥️</span> 桌面使用技巧
+                  <span>🖥️</span> 素材库使用技巧
                 </h4>
                 <ul className="space-y-2 text-[11px]" style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>
                   <li className="flex items-start gap-2">
@@ -422,7 +424,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-blue-400 font-mono bg-blue-500/10 px-1.5 py-0.5 rounded">Ctrl+A</span>
-                    <span>全选桌面上的所有图片</span>
+                    <span>全选素材库上的所有图片</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-blue-400 font-mono bg-blue-500/10 px-1.5 py-0.5 rounded">Delete</span>
@@ -463,7 +465,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                   <li>• 双击文件夹可以打开查看内容</li>
                   <li>• 可以将图片拖入文件夹</li>
                   <li>• 右键文件夹可重命名或删除</li>
-                  <li>• 支持直接将系统文件夹拖入桌面导入</li>
+                  <li>• 支持直接将系统文件夹拖入素材库导入</li>
                 </ul>
               </div>
               
@@ -479,7 +481,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                   <li>• 双击图片可编辑标题</li>
                   <li>• 按住 Shift 点击可多选图片</li>
                   <li>• 框选可以批量选择图片</li>
-                  <li>• 鼠标滚轮可缩放桌面</li>
+                  <li>• 鼠标滚轮可缩放素材库</li>
                 </ul>
               </div>
             </div>
@@ -617,7 +619,7 @@ const BPModePanel: React.FC<{
                   <div className="w-5 h-5 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(238,209,109,0.25)' }}>
                     <BoltIcon className="w-3 h-3" style={{ color: '#eed16d' }}/>
                   </div>
-                  <h3 className="text-xs font-semibold" style={{ color: isDark ? '#fff' : '#0f172a' }}>BP 模式</h3>
+                  <h3 className="text-xs font-semibold" style={{ color: isDark ? '#fff' : '#0f172a' }}>变量模式</h3>
                   {/* 作者显示 */}
                   {template.author && (
                     <span 
@@ -717,13 +719,13 @@ const RightPanel: React.FC<RightPanelProps> = ({
           <span className="text-[11px] font-medium truncate" style={{ color: theme.colors.textPrimary }}>
             {idea.title}
           </span>
-          {/* BP标签 - #eed16d */}
+          {/* 变量模式标签 */}
           {idea.isBP && (
             <span 
               className="px-1 py-0.5 text-[8px] font-bold rounded flex-shrink-0"
               style={{ backgroundColor: 'rgba(238,209,109,0.25)', color: '#eed16d' }}
             >
-              BP
+              变量
             </span>
           )}
         </div>
@@ -819,7 +821,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
             onClick={() => setView('local-library')}
             className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:scale-105 press-scale"
             style={{ color: theme.colors.textSecondary }}
-            title="全部创意库"
+            title="全部创意文本库"
           >
             <Grid3x3 className="w-3 h-3" />
           </button>
@@ -857,13 +859,13 @@ const RightPanel: React.FC<RightPanelProps> = ({
               <Star className="w-6 h-6 text-blue-400 fill-current" />
             </div>
             <p className="text-[11px] font-medium" style={{ color: theme.colors.textPrimary }}>还没有收藏</p>
-            <p className="text-[10px] mt-1" style={{ color: theme.colors.textMuted }}>在创意库中点击星标收藏</p>
+            <p className="text-[10px] mt-1" style={{ color: theme.colors.textMuted }}>在创意文本库中点击星标收藏</p>
             <button
               onClick={() => setView('local-library')}
               className="mt-4 px-4 py-2 liquid-btn text-[11px]"
             >
               <LibraryIcon className="w-3.5 h-3.5 mr-1.5" />
-              浏览创意库
+              浏览创意文本库
             </button>
           </div>
         ) : (
@@ -950,6 +952,7 @@ const Canvas: React.FC<CanvasProps> = ({
   isImporting,
   isImportingById,
   onCanvasImageGenerated,
+  onCanvasBatchSaved,
   onCanvasCreated,
   onCanvasDeleted,
   protectedFolderIds,
@@ -983,13 +986,22 @@ const Canvas: React.FC<CanvasProps> = ({
       {/* 顶部切换标签 - z-[100] 确保始终在画布(z-50)之上可点击，避免视频节点等阻塞 tab 切换 */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[100] liquid-tabs pointer-events-auto">
         <button
+          onClick={() => setView('canvas')}
+          className={`liquid-tab flex items-center gap-1 ${
+            view === 'canvas' ? 'active' : ''
+          }`}
+        >
+          <Grid3x3 className="w-3 h-3" />
+          画布
+        </button>
+        <button
           onClick={() => setView('editor')}
           className={`liquid-tab flex items-center gap-1 ${
             view === 'editor' ? 'active' : ''
           }`}
         >
           <Monitor className="w-3 h-3" />
-          桌面
+          素材库
         </button>
         <button
           onClick={() => setView('local-library')}
@@ -998,21 +1010,7 @@ const Canvas: React.FC<CanvasProps> = ({
           }`}
         >
           <Folder className="w-3 h-3" />
-          本地创意
-          {localCreativeIdeas.length > 0 && (
-            <span className="px-1 py-0.5 text-[8px] rounded bg-white/20 font-medium">
-              {localCreativeIdeas.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setView('canvas')}
-          className={`liquid-tab flex items-center gap-1 ${
-            view === 'canvas' ? 'active' : ''
-          }`}
-        >
-          <Grid3x3 className="w-3 h-3" />
-          画布
+          创意文本库
         </button>
         <button
           onClick={() => setView('comfyui')}
@@ -1031,7 +1029,7 @@ const Canvas: React.FC<CanvasProps> = ({
           <ComfyUIConfigPanel onBack={() => setView('editor')} />
         </div>
       ) : view === 'local-library' ? (
-        /* 创意库全屏显示 - 支持卡片拖拽排序 */
+        /* 创意文本库全屏显示 - 支持卡片拖拽排序 */
         <div className="absolute inset-0 z-50 pt-12">
           <CreativeLibrary
             ideas={localCreativeIdeas}
@@ -1062,10 +1060,12 @@ const Canvas: React.FC<CanvasProps> = ({
         }}
       >
         <PebblingCanvas 
-          onImageGenerated={onCanvasImageGenerated} 
+          onImageGenerated={onCanvasImageGenerated}
+          onBatchSaved={onCanvasBatchSaved}
           onCanvasCreated={onCanvasCreated}
           onCanvasDeleted={onCanvasDeleted}
           creativeIdeas={creativeIdeas}
+          desktopItems={desktopItems}
           isActive={view === 'canvas'}
           pendingImageToAdd={pendingCanvasImage}
           onPendingImageAdded={onClearPendingCanvasImage}
@@ -1073,7 +1073,7 @@ const Canvas: React.FC<CanvasProps> = ({
         />
       </div>
       
-      {/* 桌面模式 - 仅在「桌面」Tab 时显示 */}
+      {/* 素材库模式 - 仅在「素材库」Tab 时显示 */}
       {view === 'editor' && (
       <div className="relative z-10 flex-1 overflow-hidden">
           <Desktop
@@ -1222,9 +1222,9 @@ const App: React.FC = () => {
     return [...localCreativeIdeas].sort((a, b) => (b.order || 0) - (a.order || 0));
   }, [localCreativeIdeas]);
   
-  const [view, setViewInternal] = useState<'editor' | 'local-library' | 'canvas' | 'comfyui'>('editor'); // 默认桌面模式
+  const [view, setViewInternal] = useState<'editor' | 'local-library' | 'canvas' | 'comfyui'>('canvas'); // 默认画布
   
-  // 右侧创意库面板状态
+  // 右侧创意文本库面板状态（仅画布内浮动面板使用，此处保留用于可能的其他逻辑）
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('rightPanelCollapsed') === 'true'; } catch { return false; }
   });
@@ -2280,7 +2280,7 @@ const App: React.FC = () => {
       if (activeBPTemplate) {
           // BP Mode Logic (New Orchestration)
           if (!hasValidApi) {
-             alert('BP 模式运行智能体需要配置 API Key（Gemini 或API）');
+             alert('变量模式运行智能体需要配置 API Key（Gemini 或API）');
              setSmartPromptGenStatus(ApiStatus.Idle);
              return;
           }
@@ -2813,6 +2813,78 @@ const App: React.FC = () => {
       }
     }, [handleAddToDesktop, canvasToFolderMap, handleCanvasCreated, safeDesktopSave]);
 
+  // 批量保存：创建桌面子文件夹，内含全部图片，可双击打开
+  const handleCanvasBatchSaved = useCallback((opts: import('./components/PebblingCanvas').BatchSavedOptions) => {
+    const { label, imageUrls, coverIndex, canvasId, canvasName, isVideo } = opts;
+    if (!imageUrls.length) return;
+
+    const gridSize = 100;
+    const maxCols = 8;
+    const now = Date.now();
+
+    const imageItems: DesktopImageItem[] = imageUrls.map((url, i) => ({
+      id: `batch-img-${now}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'image',
+      name: isVideo ? `视频 ${i + 1}` : `图 ${i + 1}`,
+      position: { x: (i % maxCols) * gridSize, y: Math.floor(i / maxCols) * gridSize },
+      imageUrl: url,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    const batchFolderId = `batch-folder-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    const canvasFolderId = canvasId ? canvasToFolderMap[canvasId] : undefined;
+
+    setDesktopItems(prev => {
+      let batchFolderPosition = { x: 0, y: 0 };
+      if (canvasFolderId) {
+        const canvasFolder = prev.find(i => i.id === canvasFolderId) as DesktopFolderItem | undefined;
+        if (canvasFolder) {
+          const occupied = new Set(
+            prev.filter(i => canvasFolder.itemIds.includes(i.id)).map(i =>
+              `${Math.round(i.position.x / gridSize)},${Math.round(i.position.y / gridSize)}`
+            )
+          );
+          let found = false;
+          for (let y = 0; y < 100 && !found; y++) {
+            for (let x = 0; x < maxCols; x++) {
+              const key = `${x},${y}`;
+              if (!occupied.has(key)) {
+                batchFolderPosition = { x: x * gridSize, y: y * gridSize };
+                found = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      const batchFolder: DesktopFolderItem = {
+        id: batchFolderId,
+        type: 'folder',
+        name: label,
+        position: batchFolderPosition,
+        itemIds: imageItems.map(i => i.id),
+        color: '#10b981',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      let next = [...prev, ...imageItems, batchFolder];
+      if (canvasFolderId && next.some(i => i.id === canvasFolderId)) {
+        next = next.map(item =>
+          item.id === canvasFolderId && item.type === 'folder'
+            ? { ...(item as DesktopFolderItem), itemIds: [...(item as DesktopFolderItem).itemIds, batchFolderId], updatedAt: now }
+            : item
+        );
+      }
+      setTimeout(() => safeDesktopSave(next), 0);
+      return next;
+    });
+
+    console.log('[Canvas] 批量文件夹已创建:', label, imageUrls.length, '张');
+  }, [canvasToFolderMap, safeDesktopSave]);
+
   const handleGenerateClick = useCallback(async () => {
     // 检查API配置
     const hasValidApi = 
@@ -2880,7 +2952,6 @@ const App: React.FC = () => {
     setError(null);
     setGeneratedContent(null);
   
-    const creativeIdeaCost = activeCreativeIdea?.cost;
     const promptToSave = canViewPrompt ? finalPrompt : '[加密提示词]';
     const activeTemplateTitle = activeBPTemplate?.title || activeSmartPlusTemplate?.title || activeSmartTemplate?.title;
       
@@ -2958,7 +3029,7 @@ const App: React.FC = () => {
       // 并发发起所有生成请求
       const generatePromises = placeholderItems.map(async (placeholder, index) => {
         try {
-          const result = await editImageWithGemini(files, finalPrompt, { aspectRatio, imageSize }, creativeIdeaCost);
+          const result = await editImageWithGemini(files, finalPrompt, { aspectRatio, imageSize });
             
           if (result.imageUrl) {
             // 保存到历史记录
@@ -3069,7 +3140,7 @@ const App: React.FC = () => {
     desktopApi.saveDesktopItems(newItems);
     
     try {
-      const result = await editImageWithGemini(files, finalPrompt, { aspectRatio, imageSize }, creativeIdeaCost);
+      const result = await editImageWithGemini(files, finalPrompt, { aspectRatio, imageSize });
       console.log('[Generate] 生成成功');
         
       if (result.imageUrl) {
@@ -3124,11 +3195,7 @@ const App: React.FC = () => {
         return updatedItems;
       });
       
-      if (errorMessage.includes('🐧') || errorMessage.includes('Pebbling') || errorMessage.includes('鹅卵石') || errorMessage.includes('余额')) {
-        setError(errorMessage);
-      } else {
-        setError(`生成失败: ${errorMessage}`);
-      }
+      setError(`生成失败: ${errorMessage}`);
       console.error('[Generate] 生成失败');
       setStatus(ApiStatus.Error);
     }
@@ -3612,6 +3679,7 @@ const App: React.FC = () => {
           isImporting={isImporting}
           isImportingById={isImportingById}
           onCanvasImageGenerated={handleCanvasImageGenerated}
+          onCanvasBatchSaved={handleCanvasBatchSaved}
           onCanvasCreated={handleCanvasCreated}
           onCanvasDeleted={handleCanvasDeleted}
           protectedFolderIds={protectedFolderIds}
@@ -3622,150 +3690,6 @@ const App: React.FC = () => {
         />
         {/* 编辑器底部的批量生成UI已移除 - 图片生成功能已整合到画布的图片节点中 */}
       </div>
-      {/* 右侧素材库 - 浮动窗口，可拖拽/可锁定 */}
-      {view !== 'canvas' && (
-        rightPanelCollapsed ? (
-          /* 收起态 - 浮动小图标，可拖拽 */
-          <div
-            className="select-none flex items-center gap-1 rounded-2xl backdrop-blur-xl border shadow-lg transition-all"
-            style={{
-              ...getFloatStyle(libraryIconPos),
-              background: isDark ? 'rgba(20,20,25,0.85)' : 'rgba(255,255,255,0.9)',
-              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-              padding: '4px 6px',
-            }}
-          >
-            {/* 拖拽手柄 */}
-            {!libraryIconLocked && (
-              <div
-                className="cursor-grab active:cursor-grabbing flex items-center"
-                style={{ color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' }}
-                onMouseDown={(e) => { const el = e.currentTarget.parentElement; if (el) startDrag('libraryIcon', e, el); }}
-              >
-                <GripVertical className="w-2.5 h-2.5" />
-              </div>
-            )}
-            {/* 展开按钮 */}
-            <button
-              onClick={() => setRightPanelCollapsed(false)}
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
-              style={{ color: isDark ? '#60a5fa' : '#3b82f6' }}
-              title="展开创意库"
-            >
-              <Star className="w-4 h-4 fill-current" />
-            </button>
-            {/* 锁定 */}
-            <button
-              onClick={() => setLibraryIconLocked(!libraryIconLocked)}
-              className="w-4 h-4 rounded flex items-center justify-center transition-all hover:scale-110"
-              style={{ color: libraryIconLocked ? (isDark ? '#60a5fa' : '#3b82f6') : (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)') }}
-              title={libraryIconLocked ? '点击解锁' : '点击锁定'}
-            >
-              {libraryIconLocked ? <Lock className="w-2 h-2" /> : <Unlock className="w-2 h-2" />}
-            </button>
-          </div>
-        ) : (
-          /* 展开态 - 浮动面板，可拖拽/可锁定/可拉伸调整大小 */
-          <div 
-            data-float-panel
-            className="select-none flex flex-col rounded-2xl border shadow-2xl"
-            style={{
-              ...getFloatStyle(libraryPanelPos),
-              width: rightPanelWidth,
-              height: rightPanelHeight > 0 ? rightPanelHeight : 'calc(100vh - 24px)',
-              maxHeight: 'calc(100vh - 10px)',
-              background: isDark ? 'rgba(20,20,25,0.95)' : 'rgba(255,255,255,0.97)',
-              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-              backdropFilter: 'blur(20px)',
-              overflow: 'hidden',
-              position: 'fixed',
-              zIndex: 85,
-            }}
-          >
-            {/* 左侧边缘拖拽调宽 */}
-            <div
-              className="absolute left-0 top-2 bottom-2 w-1.5 cursor-ew-resize z-10 group"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement;
-                if (!el) return;
-                const rect = el.getBoundingClientRect();
-                document.body.style.cursor = 'ew-resize';
-                document.body.style.userSelect = 'none';
-                resizeRef.current = { edge: 'left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: rightPanelWidth, h: rightPanelHeight || rect.height }, startPos: { x: rect.left, y: rect.top }, target: 'app' };
-              }}
-            >
-              <div className={`absolute inset-0 rounded-l transition-colors group-hover:${isDark ? 'bg-blue-500/40' : 'bg-blue-400/40'}`} />
-            </div>
-            {/* 底部边缘拖拽调高 */}
-            <div
-              className="absolute bottom-0 left-2 right-2 h-1.5 cursor-ns-resize z-10 group"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement;
-                if (!el) return;
-                const rect = el.getBoundingClientRect();
-                document.body.style.cursor = 'ns-resize';
-                document.body.style.userSelect = 'none';
-                resizeRef.current = { edge: 'bottom', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: rightPanelWidth, h: rightPanelHeight || rect.height }, startPos: { x: rect.left, y: rect.top }, target: 'app' };
-              }}
-            >
-              <div className={`absolute inset-0 rounded-b transition-colors group-hover:${isDark ? 'bg-blue-500/40' : 'bg-blue-400/40'}`} />
-            </div>
-            {/* 左下角拖拽同时调宽+调高 */}
-            <div
-              className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize z-20"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement;
-                if (!el) return;
-                const rect = el.getBoundingClientRect();
-                document.body.style.cursor = 'nesw-resize';
-                document.body.style.userSelect = 'none';
-                resizeRef.current = { edge: 'bottom-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: rightPanelWidth, h: rightPanelHeight || rect.height }, startPos: { x: rect.left, y: rect.top }, target: 'app' };
-              }}
-            />
-
-            {/* 拖拽标题栏 */}
-            <div className="flex items-center gap-1 px-2 py-1.5 flex-shrink-0" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
-              {/* 拖拽手柄 */}
-              {!libraryPanelLocked && (
-                <div
-                  className="cursor-grab active:cursor-grabbing flex items-center"
-                  style={{ color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' }}
-                  onMouseDown={(e) => { const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement; if (el) startDrag('libraryPanel', e, el); }}
-                >
-                  <GripVertical className="w-3 h-3" />
-                </div>
-              )}
-              <span className="flex-1" />
-              {/* 锁定 */}
-              <button
-                onClick={() => setLibraryPanelLocked(!libraryPanelLocked)}
-                className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110"
-                style={{ color: libraryPanelLocked ? (isDark ? '#60a5fa' : '#3b82f6') : (isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)') }}
-                title={libraryPanelLocked ? '点击解锁（可拖拽）' : '点击锁定（防止误拖动）'}
-              >
-                {libraryPanelLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
-              </button>
-            </div>
-            {/* 面板内容 */}
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <RightPanel 
-                creativeIdeas={creativeIdeas}
-                handleUseCreativeIdea={handleUseCreativeIdea}
-                setAddIdeaModalOpen={() => setAddIdeaModalOpen(true)}
-                setView={setView}
-                onDeleteIdea={handleDeleteCreativeIdea}
-                onEditIdea={handleStartEditIdea}
-                onToggleFavorite={handleToggleFavorite}
-                onClearRecentUsage={handleClearRecentUsage}
-                onCollapse={() => setRightPanelCollapsed(true)}
-              />
-            </div>
-          </div>
-        )
-      )}
       
       <style>{`
         @keyframes fade-in {

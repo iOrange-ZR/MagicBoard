@@ -233,7 +233,7 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({
           
           {/* Chat Model - 用于BP智能体分析 */}
           <div>
-            <label className="text-[10px] text-gray-500 mb-1 block">分析模型 (BP/Smart模式)</label>
+            <label className="text-[10px] text-gray-500 mb-1 block">分析模型 (变量/Smart模式)</label>
             <input
               type="text"
               value={tpChatModel}

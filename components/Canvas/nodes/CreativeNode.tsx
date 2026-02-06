@@ -79,7 +79,7 @@ const CreativeNode: React.FC<NodeProps> = ({ id, data, selected }) => {
                         className="px-1.5 py-0.5 text-[9px] font-bold rounded-full backdrop-blur-sm shadow-lg"
                         style={{ backgroundColor: '#a855f7', color: '#fff' }}
                       >
-                        📊 工作流
+                        📊 画布流程
                       </span>
                     )}
                     {idea.author && (
@@ -88,12 +88,6 @@ const CreativeNode: React.FC<NodeProps> = ({ id, data, selected }) => {
                         style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff' }}
                       >
                         @{idea.author}
-                      </span>
-                    )}
-                    {idea.cost !== undefined && idea.cost > 0 && (
-                      <span className="px-1.5 py-0.5 bg-blue-500/90 text-white text-[8px] font-bold rounded-full backdrop-blur-sm flex items-center gap-0.5">
-                        <span>🪨</span>
-                        <span>{idea.cost}</span>
                       </span>
                     )}
                   </div>
@@ -135,10 +129,9 @@ const CreativeNode: React.FC<NodeProps> = ({ id, data, selected }) => {
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold text-white truncate">{idea.title}</div>
                   <div className="text-[10px] text-gray-400 flex items-center gap-1 mt-0.5 flex-wrap">
-                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold" style={{ backgroundColor: '#eed16d', color: '#1a1a2e' }}>BP</span>
+                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold" style={{ backgroundColor: '#eed16d', color: '#1a1a2e' }}>变量</span>
                     {idea.isSmartPlus && <span className="px-1 py-0.5 bg-blue-500/30 rounded-md text-blue-300 text-[9px]">S+</span>}
                     {idea.isSmart && <span className="px-1 py-0.5 bg-blue-500/30 rounded-md text-blue-300 text-[9px]">Smart</span>}
-                    {idea.cost !== undefined && idea.cost > 0 && <span className="text-blue-400 flex items-center gap-0.5 text-[9px]">🪨 {idea.cost}</span>}
                   </div>
                 </div>
               </div>

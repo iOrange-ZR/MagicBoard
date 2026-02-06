@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 // JSZip 导出逻辑已迁移到 services/export/desktopExporter.ts
 import { exportAsZip, batchDownloadImages, downloadSingleImage } from '../services/export';
-import { normalizeImageUrl, getThumbnailUrl, parseErrorMessage, extractErrorCode } from '../utils/image';
+import { normalizeImageUrl, getThumbnailUrl, toAbsoluteFilesUrl, parseErrorMessage, extractErrorCode } from '../utils/image';
 import { mergeImages } from '../services/api/imageOps';
 import { rebuildThumbnail, saveVideoToOutput, saveThumbnail } from '../services/api/files';
 
@@ -2138,7 +2138,7 @@ export const Desktop: React.FC<DesktopProps> = ({
             borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
             color: isLight ? '#475569' : '#a1a1aa'
           }}
-          title="将同创意库生成的图片自动叠放在一起"
+          title="将同创意文本库生成的图片自动叠放在一起"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <LayersIcon className="w-3.5 h-3.5" />
@@ -2346,7 +2346,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                 ) : (
                   // 正常状态：显示缩略图（🔧 性能优化：只加载缩略图，启用懒加载）
                   <img
-                    src={getThumbnailUrl((item as DesktopImageItem).imageUrl)}
+                    src={toAbsoluteFilesUrl(getThumbnailUrl((item as DesktopImageItem).imageUrl))}
                     alt={item.name}
                     className="w-full h-full object-cover"
                     draggable={false}
@@ -2373,7 +2373,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                           const result = await rebuildThumbnail(imageUrl);
                           if (result.success && result.thumbnailUrl) {
                             // 重建成功，刷新图片
-                            target.src = result.thumbnailUrl + '?t=' + Date.now();
+                            target.src = toAbsoluteFilesUrl(result.thumbnailUrl) + '?t=' + Date.now();
                           } else {
                             // 重建失败（原图不存在）
                             failedThumbnails.add(imageUrl);
@@ -2397,7 +2397,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                 <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-purple-900/60 to-gray-900">
                   {(item as DesktopVideoItem).thumbnailUrl ? (
                     <img
-                      src={getThumbnailUrl((item as DesktopVideoItem).thumbnailUrl!)}
+                      src={toAbsoluteFilesUrl(getThumbnailUrl((item as DesktopVideoItem).thumbnailUrl!))}
                       alt={item.name}
                       className="w-full h-full object-cover"
                       draggable={false}
@@ -2455,7 +2455,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                       // 🔧 性能优化：叠放预览只加载缩略图，启用懒加载
                       <img
                         key={img.id}
-                        src={getThumbnailUrl(img.imageUrl)}
+                        src={toAbsoluteFilesUrl(getThumbnailUrl(img.imageUrl))}
                         alt={img.name}
                         loading="lazy"
                         onError={async (e) => {
@@ -2473,7 +2473,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                             try {
                               const result = await rebuildThumbnail(imageUrl);
                               if (result.success && result.thumbnailUrl) {
-                                target.src = result.thumbnailUrl + '?t=' + Date.now();
+                                target.src = toAbsoluteFilesUrl(result.thumbnailUrl) + '?t=' + Date.now();
                               } else {
                                 failedThumbnails.add(imageUrl);
                                 target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NjY2NjYiIHN0cm9rZS13aWR0aD0iMiI+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMiIgcnk9IjIiLz48Y2lyY2xlIGN4PSI4LjUiIGN5PSI4LjUiIHI9IjEuNSIvPjxwb2x5bGluZSBwb2ludHM9IjIxIDE1IDEwIDkgMyAxNSIvPjwvc3ZnPg==';
@@ -2726,7 +2726,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                 <>
                   <div className="relative p-4">
                     <video
-                      src={`http://localhost:8765${selectedImageItem.imageUrl}`}
+                      src={toAbsoluteFilesUrl(selectedImageItem.imageUrl)}
                       controls
                       autoPlay
                       muted
@@ -2743,7 +2743,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                   {/* 底部操作按钮 */}
                   <div className="px-4 pb-4 flex items-center justify-center gap-2">
                     <a
-                      href={`http://localhost:8765${selectedImageItem.imageUrl}`}
+                      href={toAbsoluteFilesUrl(selectedImageItem.imageUrl)}
                       download
                       className="flex items-center gap-1.5 px-3 py-2 font-medium rounded-lg text-xs transition-colors hover:opacity-90"
                       style={{ 
@@ -2765,7 +2765,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                     onClick={() => onImagePreview?.(selectedImageItem)}
                   >
                     <img
-                      src={normalizeImageUrl(selectedImageItem.imageUrl)}
+                      src={toAbsoluteFilesUrl(normalizeImageUrl(selectedImageItem.imageUrl))}
                       alt={selectedImageItem.name}
                       className="rounded-lg"
                       style={{
@@ -3140,7 +3140,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                           style={{ color: theme.colors.textPrimary }}
                         >
                           <LibraryIcon className="w-4 h-4 text-blue-400" />
-                          <span>创建创意库</span>
+                          <span>创建创意文本库</span>
                         </button>
                       )}
                       {/* 添加到画布 - 青色 */}

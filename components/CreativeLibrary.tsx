@@ -244,7 +244,7 @@ const CreativeCard: React.FC<{
                 className="px-1.5 py-0.5 text-[9px] font-bold rounded-full backdrop-blur-sm pointer-events-none shadow-lg"
                 style={{ backgroundColor: '#eed16d', color: '#1a1a2e', boxShadow: '0 4px 6px -1px rgba(238,209,109,0.3)' }}
               >
-                BP
+                变量
               </div>
             )}
             {idea.isWorkflow && (
@@ -252,7 +252,7 @@ const CreativeCard: React.FC<{
                 className="px-1.5 py-0.5 text-[9px] font-bold rounded-full backdrop-blur-sm pointer-events-none shadow-lg"
                 style={{ backgroundColor: '#a855f7', color: '#fff', boxShadow: '0 4px 6px -1px rgba(168,85,247,0.3)' }}
               >
-                📊 工作流
+                📊 画布流程
               </div>
             )}
             {idea.author && (
@@ -264,12 +264,6 @@ const CreativeCard: React.FC<{
               </div>
             )}
           </div>
-          {idea.cost !== undefined && idea.cost > 0 && (
-            <div className="px-1.5 py-0.5 bg-blue-500/90 text-white text-[8px] font-bold rounded-full backdrop-blur-sm pointer-events-none flex items-center gap-0.5">
-              <span>🪨</span>
-              <span>{idea.cost}</span>
-            </div>
-          )}
           {idea.isWorkflow && idea.workflowNodes && (
             <div className="px-1.5 py-0.5 bg-purple-500/80 text-white text-[8px] font-bold rounded-full backdrop-blur-sm pointer-events-none">
               {idea.workflowNodes.length} 节点
@@ -344,7 +338,7 @@ const VirtualizedCreativeGrid: React.FC<VirtualizedCreativeGridProps> = ({
         <div className="text-center flex flex-col items-center justify-center h-full">
           <LibraryIcon className="w-12 h-12 mb-3" style={{ color: theme.colors.textMuted }} />
           <h2 className="text-lg font-semibold" style={{ color: theme.colors.textSecondary }}>
-            {searchTerm || filter !== 'all' || categoryFilter !== 'all' ? '未找到创意' : '创意库是空的'}
+            {searchTerm || filter !== 'all' || categoryFilter !== 'all' ? '未找到创意' : '创意文本库是空的'}
           </h2>
           <p className="mt-1 text-sm" style={{ color: theme.colors.textMuted }}>
             {searchTerm || filter !== 'all' || categoryFilter !== 'all'
@@ -730,8 +724,8 @@ export const CreativeLibrary: React.FC<CreativeLibraryProps> = ({ ideas, onBack,
   const filterButtons: { key: FilterType, label: string }[] = [
     { key: 'all', label: '全部' },
     { key: 'favorite', label: '⭐ 收藏' },
-    { key: 'bp', label: 'BP' },
-    { key: 'workflow', label: '📊 工作流' },
+    { key: 'bp', label: '变量模式' },
+    { key: 'workflow', label: '📊 画布流程' },
   ];
 
   return (
@@ -745,7 +739,7 @@ export const CreativeLibrary: React.FC<CreativeLibraryProps> = ({ ideas, onBack,
       >
         <div>
           <h1 className="text-xl font-bold" style={{ color: theme.colors.primary }}>
-            创意库
+            创意文本库
           </h1>
           <p className="text-xs mt-0.5" style={{ color: theme.colors.textMuted }}>管理和使用您的创意灵感</p>
         </div>

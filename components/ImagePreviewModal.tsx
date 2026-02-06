@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { XCircle as XCircleIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon, RotateCcw as ResetZoomIcon, Download as DownloadIcon } from 'lucide-react';
-import { normalizeImageUrl } from '../utils/image';
+import { normalizeImageUrl, toAbsoluteFilesUrl } from '../utils/image';
 
 // 🔧 检测是否为视频URL
 const isVideoUrl = (url: string): boolean => {
@@ -135,7 +135,7 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
         {isVideoUrl(imageUrl) ? (
           /* 🔧 视频预览 */
           <video
-            src={imageUrl.startsWith('/files/') ? `http://localhost:8765${imageUrl}` : normalizeImageUrl(imageUrl)}
+            src={toAbsoluteFilesUrl(normalizeImageUrl(imageUrl))}
             controls
             autoPlay
             loop
@@ -152,7 +152,7 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
             <p className="text-gray-400 mb-2">图片加载失败</p>
             <p className="text-xs text-gray-500">第三方图片可能已过期或无法访问</p>
             <a 
-              href={normalizeImageUrl(imageUrl)} 
+              href={toAbsoluteFilesUrl(normalizeImageUrl(imageUrl))} 
               target="_blank" 
               rel="noopener noreferrer"
               className="mt-3 text-xs text-blue-400 hover:text-blue-300 underline"
@@ -162,7 +162,7 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
           </div>
         ) : (
           <img 
-              src={normalizeImageUrl(imageUrl)} 
+              src={toAbsoluteFilesUrl(normalizeImageUrl(imageUrl))} 
               alt="Image Preview" 
               className="block rounded-lg shadow-2xl"
               style={{ 

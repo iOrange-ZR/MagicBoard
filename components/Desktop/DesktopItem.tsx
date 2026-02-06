@@ -5,7 +5,7 @@
 
 import React, { memo, useState, useCallback } from 'react';
 import { DesktopItem, DesktopImageItem, DesktopFolderItem, DesktopStackItem, DesktopVideoItem } from '../../types';
-import { normalizeImageUrl, getThumbnailUrl } from '../../utils/image';
+import { normalizeImageUrl, getThumbnailUrl, toAbsoluteFilesUrl } from '../../utils/image';
 import { Folder as FolderIcon, AlertCircle, AlertTriangle, Video as VideoIcon } from 'lucide-react';
 import { rebuildThumbnail } from '../../services/api/files';
 
@@ -22,7 +22,7 @@ const failedThumbnails = new Set<string>();
  * 🔧 跳过视频URL，避免无效请求
  */
 const ThumbnailImage = memo<{ imageUrl: string; alt: string }>(({ imageUrl, alt }) => {
-  const [src, setSrc] = useState(() => getThumbnailUrl(imageUrl));
+  const [src, setSrc] = useState(() => toAbsoluteFilesUrl(getThumbnailUrl(imageUrl)));
   const [hasError, setHasError] = useState(false);
   
   // 🔧 如果是视频URL，直接显示占位图
@@ -51,7 +51,7 @@ const ThumbnailImage = memo<{ imageUrl: string; alt: string }>(({ imageUrl, alt 
       try {
         const result = await rebuildThumbnail(imageUrl);
         if (result.success && result.thumbnailUrl) {
-          setSrc(result.thumbnailUrl + '?t=' + Date.now());
+          setSrc(toAbsoluteFilesUrl(result.thumbnailUrl) + '?t=' + Date.now());
         } else {
           failedThumbnails.add(imageUrl);
           setHasError(true);
@@ -429,7 +429,7 @@ const StackPreview = memo<{ stack: DesktopStackItem; allItems: DesktopItem[] }>(
         return (
           <img
             key={img.id}
-            src={shouldUseThumbnail ? thumbnailUrl : originalUrl}
+            src={toAbsoluteFilesUrl(shouldUseThumbnail ? thumbnailUrl : originalUrl)}
             alt={img.name}
             className="absolute rounded-lg object-cover"
             style={{
@@ -458,7 +458,7 @@ const StackPreview = memo<{ stack: DesktopStackItem; allItems: DesktopItem[] }>(
                 try {
                   const result = await rebuildThumbnail(imageUrl);
                   if (result.success && result.thumbnailUrl) {
-                    target.src = result.thumbnailUrl + '?t=' + Date.now();
+                    target.src = toAbsoluteFilesUrl(result.thumbnailUrl) + '?t=' + Date.now();
                   } else {
                     failedThumbnails.add(imageUrl);
                     target.src = PLACEHOLDER_IMAGE;

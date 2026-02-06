@@ -74,6 +74,61 @@ export const saveVideoToOutput = async (videoData: string, filename?: string): P
   return post('/files/save-video', { videoData, filename });
 };
 
+// 单张保存到 output 子文件夹（不生成缩略图，避免不支持的图片格式导致报错）
+export const saveToOutputInFolder = async (
+  imageData: string,
+  filename: string,
+  subFolder: string
+): Promise<{ success: boolean; data?: { filename: string; path: string; url: string }; error?: string }> => {
+  return post('/files/save-output-to-folder', { imageData, filename, subFolder });
+};
+
+// 单个视频保存到 output 子文件夹（不生成缩略图）
+export const saveVideoToOutputInFolder = async (
+  videoData: string,
+  filename: string,
+  subFolder: string
+): Promise<{ success: boolean; data?: { filename: string; path: string; url: string }; error?: string }> => {
+  return post('/files/save-video-to-folder', { videoData, filename, subFolder });
+};
+
+// 将 output 根目录下的文件移入子文件夹（先单图保存再调用；缩略图会同步重命名便于展示）
+export const moveOutputToFolder = async (
+  filename: string,
+  subFolder: string
+): Promise<{ success: boolean; data?: { url: string }; error?: string }> => {
+  return post('/files/move-output-to-folder', { filename, subFolder });
+};
+
+// 批量保存图片/视频到output子文件夹
+export interface BatchSaveItem {
+  data: string; // base64 data URL
+  filename?: string;
+  isVideo?: boolean;
+}
+
+export interface BatchSaveResult {
+  folderName: string;
+  folderUrl: string;
+  results: Array<{
+    index: number;
+    success: boolean;
+    data?: { filename: string; path: string; url: string };
+    error?: string;
+  }>;
+  successCount: number;
+  totalCount: number;
+  coverIndex: number;
+}
+
+export const saveBatchToOutput = async (
+  items: BatchSaveItem[], 
+  subFolder: string, 
+  coverIndex: number = 0
+): Promise<{ success: boolean; data?: BatchSaveResult; error?: string }> => {
+  return post('/files/save-batch', { items, subFolder, coverIndex });
+};
+
 // 下载远程图片并保存到output目录（用于处理第三方API返回的URL）
 export const downloadRemoteToOutput = async (imageUrl: string, filename?: string): Promise<{ 
   success: boolean; 

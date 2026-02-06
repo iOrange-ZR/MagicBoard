@@ -37,7 +37,6 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
   const [ideaType, setIdeaType] = useState<'standard' | 'bp' | 'smartPlus'>('standard');
   const [smartPlusConfig, setSmartPlusConfig] = useState<SmartPlusConfig>(() => JSON.parse(JSON.stringify(defaultSmartPlusConfig)));
   const [bpFields, setBpFields] = useState<BPField[]>([]);
-  const [cost, setCost] = useState<number>(0);
   const [suggestedAspectRatio, setSuggestedAspectRatio] = useState<AspectRatioType | ''>('');
   const [suggestedResolution, setSuggestedResolution] = useState<ImageSizeType | ''>('');
   
@@ -83,7 +82,6 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
     setIdeaType('standard');
     setSmartPlusConfig(JSON.parse(JSON.stringify(defaultSmartPlusConfig)));
     setBpFields([]);
-    setCost(0);
     setSuggestedAspectRatio('');
     setSuggestedResolution('');
     setAllowViewPrompt(true);
@@ -108,7 +106,6 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
         setCategory(ideaToEdit.category || ''); // 加载分类
         setPrompt(ideaToEdit.prompt);
         setPreviewUrl(ideaToEdit.imageUrl);
-        setCost(ideaToEdit.cost || 0);
         setSuggestedAspectRatio(ideaToEdit.suggestedAspectRatio || '');
         setSuggestedResolution(ideaToEdit.suggestedResolution || '');
         setAllowViewPrompt(ideaToEdit.allowViewPrompt !== false); // 默认true
@@ -253,7 +250,6 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
           category: category || undefined, // 保存分类
           prompt: prompt.trim(),
           imageUrl: imageUrl!,
-          cost: cost,
           suggestedAspectRatio: suggestedAspectRatio !== '' ? suggestedAspectRatio as AspectRatioType : undefined,
           suggestedResolution: suggestedResolution !== '' ? suggestedResolution as ImageSizeType : undefined,
           isSmart: false, 
@@ -481,7 +477,7 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
             
             {/* 创意模式 */}
             <div>
-              <label className="text-[10px] font-medium mb-1.5 block" style={{ color: theme.colors.textMuted }}>模式</label>
+              <label className="text-[10px] font-medium mb-1.5 block" style={{ color: theme.colors.textMuted }}>创意模式</label>
               <div className="grid grid-cols-3 gap-1">
                 {(['standard', 'bp'] as const).map(type => (
                   <button 
@@ -496,8 +492,8 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
                       color: theme.colors.textSecondary
                     }}
                   >
-                    {type === 'standard' && 'Standard'}
-                    {type === 'bp' && 'BP'}
+                    {type === 'standard' && '标准'}
+                    {type === 'bp' && '变量模式'}
                   </button>
                 ))}
               </div>
@@ -546,22 +542,6 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
                   <option value="4K">4K</option>
                 </select>
               </div>
-            </div>
-            
-            {/* 鹅卵石扣除 */}
-            <div>
-              <label className="text-[10px] font-medium mb-1 block flex items-center gap-1" style={{ color: theme.colors.textMuted }}>
-                <span>🪨</span> 扣除鹅卵石
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={cost}
-                onChange={(e) => setCost(Math.max(0, parseInt(e.target.value) || 0))}
-                className="w-full px-2.5 py-1.5 border border-blue-700/50 rounded-lg text-xs text-blue-400 font-bold focus:border-blue-500 outline-none"
-                style={{ background: isLight ? 'rgba(254,252,232,0.5)' : 'rgba(31,41,55,0.8)' }}
-                placeholder="0"
-              />
             </div>
             
             {/* 权限设置 */}

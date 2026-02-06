@@ -49,7 +49,7 @@ const PresetInstantiationModal: React.FC<PresetInstantiationModalProps> = ({ pre
         {/* Body */}
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
             <p className="text-xs text-zinc-400 leading-relaxed">
-                Configure the inputs for this workflow.
+                配置此画布流程的输入参数。
             </p>
 
             <div className="space-y-4">
@@ -62,7 +62,7 @@ const PresetInstantiationModal: React.FC<PresetInstantiationModalProps> = ({ pre
                             value={values[`${input.nodeId}-${input.field}`] || ''}
                             onChange={(e) => handleChange(input.nodeId, input.field, e.target.value)}
                             className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white outline-none focus:border-purple-500/50 resize-y min-h-[80px]"
-                            placeholder="Enter value..."
+                            placeholder="请输入..."
                         />
                     </div>
                 ))}
@@ -72,13 +72,13 @@ const PresetInstantiationModal: React.FC<PresetInstantiationModalProps> = ({ pre
         {/* Footer */}
         <div className="p-4 border-t border-white/10 flex justify-end gap-2 bg-white/5">
             <button onClick={onCancel} className="px-4 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors">
-                Cancel
+                取消
             </button>
             <button 
                 onClick={handleSubmit}
                 className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/20 transition-all"
             >
-                Add to Canvas
+                添加到画布
             </button>
         </div>
       </div>

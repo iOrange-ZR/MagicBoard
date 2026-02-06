@@ -1,5 +1,5 @@
 
-export type NodeType = 'text' | 'image' | 'idea' | 'edit' | 'video' | 'video-output' | 'frame-extractor' | 'combine' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale' | 'bp' | 'runninghub' | 'rh-config' | 'rh-param' | 'rh-main' | 'drawing-board' | 'comfyui' | 'comfy-config' | 'preview';
+export type NodeType = 'text' | 'image' | 'edit' | 'video' | 'video-output' | 'frame-extractor' | 'combine' | 'llm' | 'resize' | 'relay' | 'remove-bg' | 'upscale' | 'bp' | 'runninghub' | 'rh-config' | 'rh-param' | 'rh-main' | 'drawing-board' | 'comfyui' | 'comfy-config' | 'preview';
 
 export type NodeStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -231,7 +231,7 @@ export const ARCTIC_COLORS = {
   glacierBlue: 'rgb(125, 163, 184)',
   glacierBlueLight: 'rgb(168, 197, 214)',
   
-  // 苔原灰绿 - Text类节点（text/idea）
+  // 苔原灰绿 - Text类节点
   tundraGreen: 'rgb(158, 179, 168)',
   tundraGreenLight: 'rgb(184, 207, 194)',
   
@@ -271,7 +271,6 @@ export const getNodeTypeColor = (type: NodeType): { primary: string; light: stri
       return { primary: ARCTIC_COLORS.glacierBlue, light: ARCTIC_COLORS.glacierBlueLight };
     
     case 'text':
-    case 'idea':
       return { primary: ARCTIC_COLORS.tundraGreen, light: ARCTIC_COLORS.tundraGreenLight };
     
     case 'llm':

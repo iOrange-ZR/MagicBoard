@@ -123,8 +123,7 @@ const convertAspectRatio = (ratio: string): NanoBananaRequest['aspect_ratio'] | 
 export const editImageWithThirdPartyApi = async (
   files: File[], // 支持多图，空数组为文生图模式
   prompt: string, 
-  config: ImageEditConfig,
-  creativeIdeaCost?: number // 创意库定义的扣费金额（本地版不用）
+  config: ImageEditConfig
 ): Promise<GeneratedContent> => {
   if (!thirdPartyConfig || !thirdPartyConfig.enabled) {
     throw new Error("API未启用");
@@ -311,10 +310,10 @@ export const chatWithThirdPartyApi = async (
   throw new Error("Chat API 未返回有效响应");
 };
 
-export const editImageWithGemini = async (files: File[], prompt: string, config: ImageEditConfig, creativeIdeaCost?: number): Promise<GeneratedContent> => {
+export const editImageWithGemini = async (files: File[], prompt: string, config: ImageEditConfig): Promise<GeneratedContent> => {
   // 如果启用了API，使用API
   if (thirdPartyConfig && thirdPartyConfig.enabled) {
-    return editImageWithThirdPartyApi(files, prompt, config, creativeIdeaCost);
+    return editImageWithThirdPartyApi(files, prompt, config);
   }
   
   if (!ai) {
