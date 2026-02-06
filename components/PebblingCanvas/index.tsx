@@ -2307,6 +2307,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               }
               if (!signal.aborted) {
                   updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
+                  // 与单张逻辑一致：每生成一张就保存到素材库一张
+                  if (result && onImageGenerated) onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
               }
           } catch (err) {
               if (!signal.aborted) updateNode(nodeId, { status: 'error' });
@@ -2362,10 +2364,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           setConnections(prev => [...prev, previewConn]);
           nodesRef.current = [...nodesRef.current, previewNode];
           connectionsRef.current = [...connectionsRef.current, previewConn];
-          // 异步批量保存到桌面子文件夹（封面为第一张，不阻塞画布）
-          const promptLabel = combinedPrompt.trim().slice(0, 15) || '批量生成';
-          saveBatchToDesktopFolder(contents, 0, promptLabel, false);
-          console.log(`[批量生成] 全部完成，已合并为预览节点共 ${contents.length} 张`);
+          // 多图与单张逻辑一致：已在上面每生成一张时通过 onImageGenerated 保存到素材库，此处不再批量保存
+          console.log(`[批量生成] 全部完成，已合并为预览节点共 ${contents.length} 张（每张已单独保存到素材库）`);
       }
       updateNode(sourceNodeId, { status: 'completed' });
       saveCurrentCanvas();
