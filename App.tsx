@@ -17,6 +17,7 @@ import { HistoryStrip } from './components/HistoryStrip';
 import * as creativeIdeasApi from './services/api/creativeIdeas';
 import * as historyApi from './services/api/history';
 import * as desktopApi from './services/api/desktop';
+import * as canvasApi from './services/api/canvas';
 import { saveToOutput, saveToInput, downloadRemoteToOutput, saveVideoToOutput, saveThumbnail } from './services/api/files';
 import { downloadImage } from './services/export';
 import { ThemeProvider, useTheme, SnowfallEffect } from './contexts/ThemeContext';
@@ -2453,16 +2454,22 @@ const App: React.FC = () => {
   }, [safeDesktopSave]);
 
   // 画布创建时创建对应的桌面文件夹（返回 folderId 以供立即使用）
+  // 若映射存在但桌面中无该文件夹（如被初始加载覆盖），会重新添加到桌面
   const handleCanvasCreated = useCallback((canvasId: string, canvasName: string): string | undefined => {
-    // 检查是否已有对应文件夹
-    if (canvasToFolderMap[canvasId]) {
-      console.log('[Canvas] 画布已有对应文件夹:', canvasToFolderMap[canvasId]);
-      return canvasToFolderMap[canvasId];
+    const now = Date.now();
+    let folderId = canvasToFolderMap[canvasId];
+    const folderExistsInDesktop = folderId ? desktopItems.some(i => i.id === folderId) : false;
+
+    // 已有对应文件夹且存在于桌面，直接返回
+    if (folderId && folderExistsInDesktop) {
+      return folderId;
     }
 
-    // 创建新的桌面文件夹
-    const now = Date.now();
-    const folderId = `canvas-folder-${canvasId}-${now}`;
+    // 映射存在但桌面中无该文件夹（例如被初始加载覆盖），用原 folderId 重新添加
+    if (!folderId) {
+      folderId = `canvas-folder-${canvasId}-${now}`;
+    }
+
     const newFolder: DesktopFolderItem = {
       id: folderId,
       type: 'folder',
@@ -2475,17 +2482,35 @@ const App: React.FC = () => {
       updatedAt: now,
     };
 
-    // 添加到桌面
     handleAddToDesktop(newFolder);
 
-    // 保存映射关系
     const newMap = { ...canvasToFolderMap, [canvasId]: folderId };
     setCanvasToFolderMap(newMap);
     localStorage.setItem('canvas_folder_map', JSON.stringify(newMap));
 
     console.log('[Canvas] 创建画布文件夹:', canvasName, '->', folderId);
     return folderId;
-  }, [canvasToFolderMap, handleAddToDesktop]);
+  }, [canvasToFolderMap, desktopItems, handleAddToDesktop]);
+
+  // 桌面加载完成后，为所有画布确保素材库中有对应文件夹（含初始默认「画布 1」）
+  const didEnsureCanvasFoldersRef = useRef(false);
+  useEffect(() => {
+    if (isLoading || didEnsureCanvasFoldersRef.current) return;
+    didEnsureCanvasFoldersRef.current = true;
+    const t = setTimeout(async () => {
+      try {
+        const result = await canvasApi.getCanvasList();
+        if (result.success && result.data?.length) {
+          result.data.forEach((c) => {
+            handleCanvasCreated(c.id, c.name);
+          });
+        }
+      } catch (e) {
+        console.warn('[Canvas] 确保画布文件夹时获取列表失败:', e);
+      }
+    }, 150);
+    return () => clearTimeout(t);
+  }, [isLoading, handleCanvasCreated]);
 
   // 画布删除时，将对应桌面文件夹标记为"已归档"
   const handleCanvasDeleted = useCallback((canvasId: string) => {
