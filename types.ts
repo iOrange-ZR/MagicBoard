@@ -336,6 +336,8 @@ export interface DesktopFolderItem extends BaseDesktopItem {
   icon?: string; // 自定义图标
   itemIds: string[]; // 包含的项目ID列表
   isOpen?: boolean; // 是否打开
+  linkedCanvasId?: string; // 关联的画布ID（画布文件夹）
+  isArchived?: boolean; // 画布已删除时标记为已归档
 }
 
 // 叠放项目（Mac风格的堆叠显示）

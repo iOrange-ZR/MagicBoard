@@ -40,7 +40,10 @@ import {
   Trash2,
   RefreshCw,
   ExternalLink,
-  Workflow
+  Workflow,
+  Lock,
+  Unlock,
+  GripVertical
 } from 'lucide-react';
 
 export const Icons = {
@@ -83,5 +86,8 @@ export const Icons = {
   Trash: Trash2,
   Refresh: RefreshCw,
   ExternalLink,
-  Workflow
+  Workflow,
+  Lock,
+  Unlock,
+  GripVertical
 };

@@ -4964,6 +4964,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   return (
     <div
       ref={nodeRef}
+      data-node-id={node.id}
       className={`absolute transition-all duration-75 flex flex-col select-none
         ${isRelay ? 'rounded-full' : 'rounded-xl'}
         ${isSelected ? 'ring-2 ring-blue-500/50 z-50' : `ring-1 ${isLightCanvas ? 'ring-black/10 hover:ring-black/20' : 'ring-white/5 hover:ring-white/20'} z-10`}

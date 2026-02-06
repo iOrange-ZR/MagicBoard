@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { Icons } from './Icons';
 import { NodeType, NodeData, CanvasPreset } from '../../types/pebblingTypes';
 import { CanvasListItem } from '../../services/api/canvas';
-import { CreativeIdea } from '../../types';
 
 // 香蕉SVG图标组件
 const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
@@ -36,9 +35,6 @@ interface SidebarProps {
     onLoadCanvas: (id: string) => void;
     onDeleteCanvas: (id: string) => void;
     onRenameCanvas: (newName: string) => void;
-    // 创意库
-    creativeIdeas?: CreativeIdea[];
-    onApplyCreativeIdea?: (idea: CreativeIdea) => void;
     // 手动保存
     onManualSave?: () => void;
     autoSaveEnabled?: boolean;
@@ -51,15 +47,12 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ 
   onDragStart, onAdd, userPresets, onAddPreset, onDeletePreset, onHome, onOpenSettings, isApiConfigured,
   canvasList, currentCanvasId, canvasName, isCanvasLoading, onCreateCanvas, onLoadCanvas, onDeleteCanvas, onRenameCanvas,
-  creativeIdeas = [], onApplyCreativeIdea, onManualSave, autoSaveEnabled = false, hasUnsavedChanges = false,
+  onManualSave, autoSaveEnabled = false, hasUnsavedChanges = false,
   canvasTheme = 'dark', onToggleTheme
 }) => {
-  const [activeLibrary, setActiveLibrary] = useState(false);
   const [showCanvasPanel, setShowCanvasPanel] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState('');
-  const [libraryFilter, setLibraryFilter] = useState<'all' | 'bp' | 'workflow' | 'favorite'>('all');
-  const [hoveredIdeaId, setHoveredIdeaId] = useState<number | null>(null);
 
   // 根据主题设置颜色
   const isLight = canvasTheme === 'light';
@@ -173,19 +166,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             }}
         >
             
-            {/* Library Toggle */}
-            <button 
-                onClick={(e) => { e.stopPropagation(); setActiveLibrary(!activeLibrary); }}
-                className={`p-2.5 rounded-xl transition-all shadow-inner border flex items-center justify-center mb-1
-                    ${activeLibrary ? 'bg-purple-500/20 text-purple-300 border-purple-500/50' : `${btnBg} ${btnText} border-transparent ${btnHoverText} ${btnHoverBg}`}
-                `}
-                title="Creative Library"
-            >
-                <Icons.Layers size={18} />
-            </button>
-
-            <div className={`w-8 h-px ${isLight ? 'bg-gray-200' : 'bg-white/10'} my-1`} />
-
             {/* Media Group */}
             <div className="flex flex-col gap-1.5">
                 <span className={`text-[9px] font-bold ${labelText} text-center uppercase tracking-wider`}>Media</span>
@@ -382,195 +362,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
         )}
 
-        {/* Library Drawer */}
-        {activeLibrary && ((() => {
-            // 筛选创意库
-            const filteredIdeas = creativeIdeas.filter(idea => {
-                if (libraryFilter === 'all') return true;
-                if (libraryFilter === 'favorite') return idea.isFavorite;
-                if (libraryFilter === 'bp') return idea.isBP;
-                if (libraryFilter === 'workflow') return idea.isWorkflow;
-                return true;
-            });
-            
-            return (
-            <div 
-                className={`fixed left-24 top-1/2 -translate-y-1/2 z-30 h-[600px] w-80 backdrop-blur-xl border rounded-2xl shadow-2xl p-4 flex flex-col gap-3 animate-in slide-in-from-left-4 fade-in duration-300 pointer-events-auto ${
-                    isLight ? 'bg-white/95 border-gray-200' : 'bg-[#1c1c1e]/95 border-white/10'
-                }`}
-                onMouseDown={(e) => e.stopPropagation()}
-            >
-                {/* 头部 */}
-                <div className={`flex items-center justify-between pb-2 border-b ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
-                    <h2 className={`text-sm font-bold flex items-center gap-2 ${isLight ? 'text-gray-900' : 'text-white'}`}>
-                        <Icons.Layers size={14} className="text-purple-500"/> 
-                        创意库
-                        <span className={`text-[10px] font-normal ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>({creativeIdeas.length})</span>
-                    </h2>
-                    <button onClick={() => setActiveLibrary(false)} className={isLight ? 'text-gray-500 hover:text-gray-900' : 'text-zinc-500 hover:text-white'}><Icons.Close size={14}/></button>
-                </div>
-                
-                {/* 筛选按钮 */}
-                <div className="flex gap-1 flex-wrap">
-                    {[
-                        { key: 'all', label: '全部' },
-                        { key: 'favorite', label: '⭐' },
-                        { key: 'bp', label: 'BP' },
-                        { key: 'workflow', label: '📊' },
-                    ].map(({ key, label }) => (
-                        <button
-                            key={key}
-                            onClick={() => setLibraryFilter(key as typeof libraryFilter)}
-                            className={`px-2 py-1 text-[10px] rounded-lg transition-all ${
-                                libraryFilter === key 
-                                    ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50' 
-                                    : isLight
-                                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent'
-                                      : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-transparent'
-                            }`}
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </div>
-                
-                {/* 创意列表 */}
-                <div className="flex-1 overflow-y-auto pr-1 scrollbar-hide space-y-2" onWheel={(e) => e.stopPropagation()}>
-                    {filteredIdeas.length === 0 ? (
-                        <div className={`text-center py-8 text-xs ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>
-                            暂无创意
-                        </div>
-                    ) : (
-                        filteredIdeas.map((idea) => (
-                            <div 
-                                key={idea.id} 
-                                className="group relative"
-                                onMouseEnter={() => setHoveredIdeaId(idea.id)}
-                                onMouseLeave={() => setHoveredIdeaId(null)}
-                            >
-                                <button 
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onApplyCreativeIdea?.(idea);
-                                        setActiveLibrary(false);
-                                    }}
-                                    className={`w-full text-left p-2 rounded-xl border transition-all ${
-                                        idea.isWorkflow 
-                                            ? 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40'
-                                            : idea.isBP
-                                            ? 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-500/40'
-                                            : isLight
-                                              ? 'bg-gray-100 border-gray-200 hover:bg-gray-200 hover:border-gray-300'
-                                              : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
-                                    }`}
-                                >
-                                    <div className="flex gap-2">
-                                        {/* 预览图 */}
-                                        {idea.imageUrl && (
-                                            <div className="w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden bg-black/20">
-                                                <img src={idea.imageUrl} alt="" className="w-full h-full object-cover" />
-                                            </div>
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                            {/* 标题行 */}
-                                            <div className="flex items-center justify-between mb-0.5">
-                                                <div className={`font-bold text-xs truncate flex-1 mr-2 ${isLight ? 'text-gray-900' : 'text-white'}`}>
-                                                    {idea.isFavorite && <span className="mr-1">⭐</span>}
-                                                    {idea.title}
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    {idea.isWorkflow && (
-                                                        <span className="text-[8px] bg-purple-500/30 text-purple-200 px-1 py-0.5 rounded">工作流</span>
-                                                    )}
-                                                    {idea.isBP && (
-                                                        <span className="text-[8px] bg-blue-500/30 text-blue-200 px-1 py-0.5 rounded">BP</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            
-                                            {/* 描述/提示词预览 */}
-                                            <div className={`text-[9px] leading-relaxed line-clamp-2 ${isLight ? 'text-gray-500' : 'text-zinc-400'}`}>
-                                                {idea.isBP && idea.bpFields ? (
-                                                    <span className="text-zinc-500">
-                                                        输入: {idea.bpFields.map(f => f.label).join(', ')}
-                                                    </span>
-                                                ) : idea.isWorkflow && idea.workflowNodes ? (
-                                                    <span className="text-zinc-500">
-                                                        {idea.workflowNodes.length} 个节点
-                                                    </span>
-                                                ) : (
-                                                    idea.prompt.slice(0, 50) + (idea.prompt.length > 50 ? '...' : '')
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </button>
-                                
-                                {/* Hover 详情 */}
-                                {hoveredIdeaId === idea.id && (
-                                    <div className={`absolute left-full top-0 ml-2 w-64 border rounded-xl p-3 shadow-2xl z-50 pointer-events-none animate-in fade-in slide-in-from-left-2 duration-150 ${isLight ? 'bg-white border-gray-200' : 'bg-[#1c1c1e] border-white/10'}`}>
-                                        {/* 缩略图 */}
-                                        {idea.imageUrl && (
-                                            <div className="w-full h-24 rounded-lg overflow-hidden mb-2 bg-black/20">
-                                                <img src={idea.imageUrl} alt="" className="w-full h-full object-cover" />
-                                            </div>
-                                        )}
-                                        <div className={`text-xs font-bold mb-1 ${isLight ? 'text-gray-900' : 'text-white'}`}>{idea.title}</div>
-                                        {idea.isBP && idea.bpFields ? (
-                                            <div className="space-y-1">
-                                                <div className="text-[10px] text-zinc-500">输入字段:</div>
-                                                {idea.bpFields.map((field, i) => (
-                                                    <div key={i} className="text-[10px] text-blue-300 bg-blue-500/10 px-2 py-1 rounded">
-                                                        {field.label}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : idea.isWorkflow && idea.workflowInputs ? (
-                                            <div className="space-y-1">
-                                                <div className="text-[10px] text-zinc-500">工作流输入:</div>
-                                                {idea.workflowInputs.map((input, i) => (
-                                                    <div key={i} className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-1 rounded">
-                                                        {input.label}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <div className={`text-[10px] leading-relaxed max-h-32 overflow-y-auto ${isLight ? 'text-gray-500' : 'text-zinc-400'}`} onWheel={(e) => e.stopPropagation()}>
-                                                {idea.prompt}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        ))
-                    )}
-                </div>
-                
-                {/* 底部快捷预设 */}
-                {userPresets.length > 0 && (
-                    <div className={`pt-2 border-t ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
-                        <h3 className={`text-[10px] font-bold uppercase mb-2 tracking-wider ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>画布预设</h3>
-                        <div className="space-y-1 max-h-32 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
-                            {userPresets.slice(0, 3).map((preset) => (
-                                <button 
-                                    key={preset.id}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onAddPreset(preset.id);
-                                        setActiveLibrary(false);
-                                    }}
-                                    className="w-full text-left p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all text-xs"
-                                >
-                                    <span className="text-emerald-600 dark:text-emerald-200">{preset.title}</span>
-                                    <span className={`text-[9px] ml-2 ${isLight ? 'text-gray-500' : 'text-zinc-500'}`}>({preset.nodes.length} 节点)</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-            );
-        })())}
     </>
   );
 };

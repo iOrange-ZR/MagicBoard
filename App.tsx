@@ -11,7 +11,7 @@ import { AddCreativeIdeaModal } from './components/AddCreativeIdeaModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CreativeLibrary } from './components/CreativeLibrary';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { Library as LibraryIcon, Settings as SettingsIcon, Zap as BoltIcon, PlusCircle as PlusCircleIcon, Image as ImageIcon, Lightbulb as LightbulbIcon, AlertTriangle as WarningIcon, Plug as PlugIcon, Gem as DiamondIcon, Sun, Moon, HelpCircle, Home, Database, Maximize2, X, Lock, Edit as EditIcon, Star, Trash2, Clock, Grid3x3, Monitor, Folder, Check, ChevronDown, Minus, Plus, Workflow } from 'lucide-react';
+import { Library as LibraryIcon, Settings as SettingsIcon, Zap as BoltIcon, PlusCircle as PlusCircleIcon, Image as ImageIcon, Lightbulb as LightbulbIcon, AlertTriangle as WarningIcon, Plug as PlugIcon, Gem as DiamondIcon, Sun, Moon, HelpCircle, Home, Database, Maximize2, X, Lock, Unlock, GripVertical, Edit as EditIcon, Star, Trash2, Clock, Grid3x3, Monitor, Folder, Check, ChevronDown, ChevronLeft, ChevronRight, Minus, Plus, Workflow } from 'lucide-react';
 import { GenerateButton } from './components/GenerateButton';
 import { HistoryStrip } from './components/HistoryStrip';
 import * as creativeIdeasApi from './services/api/creativeIdeas';
@@ -28,36 +28,10 @@ import { ComfyUIConfigPanel } from './components/ComfyUIConfigPanel';
 
 
 interface LeftPanelProps {
-  files: File[];
-  activeFileIndex: number | null;
-  onFileSelection: (files: FileList | null) => void;
-  onFileRemove: (index: number) => void;
-  onFileSelect: (index: number) => void;
-  onTriggerUpload: () => void;
   // 设置
   onSettingsClick: () => void;
   // 当前 API 模式状态
   currentApiMode: 'local-thirdparty' | 'local-gemini';
-  // 参数与提示词相关 (从RightPanel移入)
-  prompt: string;
-  setPrompt: (value: string) => void;
-  activeSmartTemplate: CreativeIdea | null;
-  activeSmartPlusTemplate: CreativeIdea | null;
-  activeBPTemplate: CreativeIdea | null;
-  bpInputs: Record<string, string>;
-  setBpInput: (id: string, value: string) => void;
-  smartPlusOverrides: SmartPlusConfig;
-  setSmartPlusOverrides: (config: SmartPlusConfig) => void;
-  handleGenerateSmartPrompt: () => void;
-  canGenerateSmartPrompt: boolean;
-  smartPromptGenStatus: ApiStatus;
-  onCancelSmartPrompt: () => void;
-  aspectRatio: string;
-  setAspectRatio: (value: string) => void;
-  imageSize: string;
-  setImageSize: (value: string) => void;
-  isThirdPartyApiEnabled: boolean;
-  onClearTemplate: () => void;
   backendStatus: 'connected' | 'disconnected' | 'checking'; // 后端连接状态
 }
 
@@ -71,6 +45,7 @@ interface RightPanelProps {
   onEditIdea: (idea: CreativeIdea) => void;
   onToggleFavorite?: (id: number) => void; // 切换收藏状态
   onClearRecentUsage?: (id: number) => void; // 清除使用记录（重置order）
+  onCollapse?: () => void; // 收起面板
 }
 
 interface CanvasProps {
@@ -137,6 +112,10 @@ interface CanvasProps {
   onCanvasImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void;
   // 画布创建回调
   onCanvasCreated?: (canvasId: string, canvasName: string) => void;
+  // 画布删除回调
+  onCanvasDeleted?: (canvasId: string) => void;
+  // 受保护的文件夹ID集合（关联活跃画布，不可删除）
+  protectedFolderIds?: Set<string>;
   // 添加图片到画布
   pendingCanvasImage?: { imageUrl: string; imageName?: string } | null;
   onClearPendingCanvasImage?: () => void;
@@ -151,62 +130,14 @@ interface CanvasProps {
 
 
 const LeftPanel: React.FC<LeftPanelProps> = ({
-  files,
-  activeFileIndex,
-  onFileSelection,
-  onFileRemove,
-  onFileSelect,
-  onTriggerUpload,
   onSettingsClick,
   currentApiMode,
-  // 参数与提示词
-  prompt,
-  setPrompt,
-  activeSmartTemplate,
-  activeSmartPlusTemplate,
-  activeBPTemplate,
-  bpInputs,
-  setBpInput,
-  smartPlusOverrides,
-  setSmartPlusOverrides,
-  handleGenerateSmartPrompt,
-  canGenerateSmartPrompt,
-  smartPromptGenStatus,
-  onCancelSmartPrompt,
-  aspectRatio,
-  setAspectRatio,
-  imageSize,
-  setImageSize,
-  isThirdPartyApiEnabled,
-  onClearTemplate,
   backendStatus,
 }) => {
   const { theme, themeName, setTheme } = useTheme();
   
-  // 提示词放大弹窗状态
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
-  const expandedPromptRef = useRef<HTMLTextAreaElement>(null);
-  
-  // 参数配置折叠状态
-  const [isParamsExpanded, setIsParamsExpanded] = useState(true);
-  
   // 帮助文档弹窗状态
   const [isHelpOpen, setIsHelpOpen] = useState(false);
-  
-  // 处理ESC关闭弹窗
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isPromptExpanded) {
-        setIsPromptExpanded(false);
-      }
-    };
-    if (isPromptExpanded) {
-      document.addEventListener('keydown', handleKeyDown);
-      // 聚焦到放大的输入框
-      setTimeout(() => expandedPromptRef.current?.focus(), 100);
-    }
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isPromptExpanded]);
   
   // 明暗切换
   const toggleDarkMode = () => {
@@ -233,12 +164,6 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
   };
   
   const modeDisplay = getModeDisplay();
-  
-  const hasActiveTemplate = activeSmartTemplate || activeSmartPlusTemplate || activeBPTemplate;
-  const activeTemplateName = activeBPTemplate?.title || activeSmartPlusTemplate?.title || activeSmartTemplate?.title;
-  const activeTemplate = activeBPTemplate || activeSmartPlusTemplate || activeSmartTemplate;
-  const canViewPrompt = activeTemplate?.allowViewPrompt !== false;
-  const canEditPrompt = activeTemplate?.allowEditPrompt !== false;
   
   return (
   <aside 
@@ -404,279 +329,24 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
         </div>
       </div>
       
-      {/* 可滚动内容区域 */}
+      {/* 内容区域 - 简化版仅显示提示信息 */}
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col min-h-0">
-        {/* 固定内容区域 - 资源素材 */}
-        <div className="flex-shrink-0 mb-4">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: theme.colors.textMuted }}>资源素材</h2>
-          <ImageUploader 
-            files={files}
-            activeFileIndex={activeFileIndex}
-            onFileChange={onFileSelection}
-            onFileRemove={onFileRemove}
-            onFileSelect={onFileSelect}
-            onTriggerUpload={onTriggerUpload}
-          />
-        </div>
-        
-        {/* 模型参数卡片 - 可折叠 */}
         <div 
-          className="flex-shrink-0 rounded-2xl mb-4 transition-colors duration-300 overflow-hidden"
+          className="p-4 rounded-2xl text-center"
           style={{
             background: theme.colors.bgSecondary,
             border: `1px solid ${theme.colors.border}`,
           }}
         >
-           {/* 可点击的标题栏 */}
-           <button
-             onClick={() => setIsParamsExpanded(!isParamsExpanded)}
-             className="w-full flex items-center justify-between p-4 transition-colors"
-             style={{
-               background: 'transparent',
-             }}
-             onMouseEnter={(e) => {
-               e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
-             }}
-             onMouseLeave={(e) => {
-               e.currentTarget.style.background = 'transparent';
-             }}
-           >
-             <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center ring-1 ring-blue-500/20">
-                  <ImageIcon className="w-3 h-3 text-blue-400"/>
-                </div>
-                <h3 className="text-[11px] font-semibold" style={{ color: theme.colors.textPrimary }}>参数配置</h3>
-             </div>
-             <ChevronDown 
-               className={`w-4 h-4 transition-transform duration-200 ${isParamsExpanded ? 'rotate-180' : ''}`}
-               style={{ color: theme.colors.textMuted }}
-             />
-           </button>
-           
-           {/* 可折叠内容 */}
-           <div className={`transition-all duration-300 ${isParamsExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-             <div className="px-4 pb-4 space-y-3">
-              {/* 画面比例 */}
-              <div>
-                  <div className="flex justify-between mb-2">
-                       <span className="text-[10px] font-medium" style={{ color: theme.colors.textMuted }}>画面比例</span>
-                       <span className="text-[10px] font-mono font-semibold text-blue-400">{aspectRatio}</span>
-                  </div>
-                  <div className="grid grid-cols-6 gap-1">
-                      {['Auto', '1:1', '3:4', '4:3', '9:16', '16:9'].map(ratio => (
-                          <button
-                              key={ratio}
-                              onClick={() => setAspectRatio(ratio)}
-                              className={`py-1.5 text-[9px] font-semibold rounded-lg transition-all duration-200 ${
-                                  aspectRatio === ratio
-                                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/25'
-                                      : ''
-                              }`}
-                              style={aspectRatio !== ratio ? {
-                                background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-                                color: isDark ? '#737373' : '#6b7280',
-                              } : undefined}
-                          >
-                              {ratio}
-                          </button>
-                      ))}
-                  </div>
-                  <div className="grid grid-cols-5 gap-1 mt-1">
-                      {['2:3', '3:2', '4:5', '5:4', '21:9'].map(ratio => (
-                          <button
-                              key={ratio}
-                              onClick={() => setAspectRatio(ratio)}
-                              className={`py-1.5 text-[9px] font-semibold rounded-lg transition-all duration-200 ${
-                                  aspectRatio === ratio
-                                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/25'
-                                      : ''
-                              }`}
-                              style={aspectRatio !== ratio ? {
-                                background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-                                color: isDark ? '#737373' : '#6b7280',
-                              } : undefined}
-                          >
-                              {ratio}
-                          </button>
-                      ))}
-                  </div>
-              </div>
-              
-              {/* 分辨率 */}
-              <div>
-                  <div className="flex justify-between mb-2">
-                       <span className="text-[10px] font-medium" style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>分辨率</span>
-                       <span className="text-[10px] font-mono font-semibold text-blue-400">{imageSize}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                       {['1K', '2K', '4K'].map(size => (
-                          <button
-                              key={size}
-                              onClick={() => setImageSize(size)}
-                              className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all ${
-                                  imageSize === size
-                                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/25 ring-1 ring-white/20'
-                                      : `${isDark ? 'bg-white/[0.03] text-gray-500 hover:bg-white/[0.06]' : 'bg-black/[0.03] text-gray-500 hover:bg-black/[0.06]'} hover:text-blue-400`
-                              }`}
-                          >
-                              {size}
-                          </button>
-                      ))}
-                  </div>
-              </div>
-           </div>
-           </div>
-        </div>
-        
-        {/* 提示词区域 - 自动扩展到底部 */}
-        <div className="flex-1 flex flex-col min-h-[150px]">
-          <div className="flex items-center justify-between mb-2">
-             <div className="flex items-center gap-1.5">
-               <h2 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: isDark ? '#6b7280' : '#9ca3af' }}>
-                  {hasActiveTemplate ? '关键词' : '提示词'}
-               </h2>
-               {/* 放大按钮 - BP模式也支持放大查看 */}
-               {canViewPrompt && (
-                 <button
-                   onClick={() => setIsPromptExpanded(true)}
-                   className="w-5 h-5 rounded-md flex items-center justify-center transition-all hover:scale-110"
-                   style={{ 
-                     color: isDark ? '#6b7280' : '#9ca3af',
-                   }}
-                   onMouseEnter={(e) => {
-                     e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
-                   }}
-                   onMouseLeave={(e) => {
-                     e.currentTarget.style.background = 'transparent';
-                   }}
-                   title="放大查看 (Esc关闭)"
-                 >
-                   <Maximize2 className="w-3 h-3" />
-                 </button>
-               )}
-             </div>
-             <div className="flex items-center gap-1.5">
-               {hasActiveTemplate && (
-                 <div className="flex items-center gap-1">
-                   <span 
-                     className="px-2 py-0.5 rounded-md text-[9px] font-semibold"
-                     style={{
-                       background: activeBPTemplate 
-                         ? 'rgba(238,209,109,0.15)'
-                         : 'rgba(59,130,246,0.15)',
-                       color: activeBPTemplate
-                         ? '#eed16d'
-                         : '#60a5fa',
-                     }}
-                   >
-                     {activeTemplateName}
-                   </span>
-                   {/* 作者显示 */}
-                   {activeTemplate?.author && (
-                     <span 
-                       className="text-[9px] font-medium"
-                       style={{ color: activeBPTemplate ? '#eed16d' : '#60a5fa' }}
-                     >
-                       @{activeTemplate.author}
-                     </span>
-                   )}
-                   <button
-                     onClick={onClearTemplate}
-                     className="w-5 h-5 rounded-md flex items-center justify-center transition-all hover:scale-110"
-                     style={{ 
-                       color: isDark ? '#6b7280' : '#9ca3af',
-                     }}
-                     title="卸载 (Esc)"
-                   >
-                     <X className="w-3 h-3 hover:text-gray-400" />
-                   </button>
-                 </div>
-               )}
-               <span 
-                 className="px-2 py-0.5 rounded-md text-[9px] font-semibold"
-                 style={{
-                   background: isThirdPartyApiEnabled ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.12)',
-                   color: isThirdPartyApiEnabled ? '#3b82f6' : '#60a5fa'
-                 }}
-               >
-                 {isThirdPartyApiEnabled ? 'Nano' : 'Gemini'}
-               </span>
-             </div>
+          <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center mx-auto mb-3">
+            <ImageIcon className="w-5 h-5 text-blue-400" />
           </div>
-          
-          {activeBPTemplate && (
-              <BPModePanel 
-                   template={activeBPTemplate}
-                   inputs={bpInputs}
-                   onInputChange={setBpInput}
-              />
-          )}
-
-          {canViewPrompt ? (
-            <div className="relative group flex-1 flex flex-col">
-             <textarea
-                 value={prompt}
-                 onChange={(e) => setPrompt(e.target.value)}
-                 placeholder={
-                   activeBPTemplate
-                     ? "生成的提示词显示在这里..."
-                     : activeSmartTemplate
-                     ? `"${activeSmartTemplate.title}" 关键词...`
-                     : activeSmartPlusTemplate
-                     ? `场景关键词 (可选)...`
-                     : "描述想生成的画面..."
-                 }
-                 readOnly={!!activeBPTemplate || !canEditPrompt}
-                 className={`w-full flex-1 min-h-[100px] p-3 pr-11 rounded-xl resize-none text-[11px] transition-all ${
-                     !canEditPrompt ? 'cursor-not-allowed opacity-60' : ''
-                 }`}
-                 style={{
-                   background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                   border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-                   color: isDark ? '#fff' : '#0f172a',
-                 }}
-               />
-               <button
-                 onClick={smartPromptGenStatus === ApiStatus.Loading ? onCancelSmartPrompt : handleGenerateSmartPrompt}
-                 disabled={smartPromptGenStatus !== ApiStatus.Loading && !canGenerateSmartPrompt}
-                 className={`absolute top-2 right-2 w-8 h-8 rounded-lg text-white shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95 flex items-center justify-center ring-1 ring-white/20 ${
-                     smartPromptGenStatus === ApiStatus.Loading
-                     ? 'bg-gradient-to-br from-gray-500 to-gray-600 shadow-gray-500/30'
-                     : activeBPTemplate 
-                     ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/30' 
-                     : 'bg-blue-500 shadow-blue-500/30'
-                 }`}
-                 title={smartPromptGenStatus === ApiStatus.Loading ? "取消" : "生成"}
-               >
-                   {smartPromptGenStatus === ApiStatus.Loading ? (
-                      <X className="w-4 h-4" />
-                   ) : (
-                     <img src="/icons/tafa-logo.jpg" alt="TAFA" className="w-4 h-4 object-contain rounded-sm" />
-                   )}
-               </button>
-            </div>
-          ) : (
-            <div 
-              className="p-3 rounded-xl"
-              style={{
-                background: isDark ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.06)',
-                border: `1px solid ${isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)'}`,
-              }}
-            >
-              <div className="flex items-center gap-2 mb-1.5">
-                <div 
-                  className="w-6 h-6 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(59,130,246,0.15)' }}
-                >
-                  <Lock className="w-3.5 h-3.5 text-blue-400" />
-                </div>
-                <span className="text-xs font-semibold text-blue-400">提示词已加密</span>
-              </div>
-              <p className="text-[10px]" style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>
-                填写输入框后点击生成即可
-              </p>
-            </div>
-          )}
+          <p className="text-xs font-semibold mb-1" style={{ color: theme.colors.textPrimary }}>
+            AI 图片生成
+          </p>
+          <p className="text-[10px]" style={{ color: theme.colors.textMuted }}>
+            切换到「画布」Tab，在图片节点中使用 AI 生成功能
+          </p>
         </div>
       </div>
       
@@ -693,209 +363,6 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
           AI 内容仅供学习测试
         </p>
       </div>
-      
-      {/* 提示词放大弹窗 */}
-      {isPromptExpanded && (
-        <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsPromptExpanded(false);
-          }}
-        >
-          {/* 背景遮罩 */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          
-          {/* 弹窗内容 - BP模式和普通模式分开处理 */}
-          <div 
-            className="relative w-[560px] max-w-[90vw] max-h-[85vh] overflow-y-auto p-4 rounded-2xl shadow-2xl"
-            style={{
-              background: isDark 
-                ? 'linear-gradient(135deg, rgba(20,20,28,0.98) 0%, rgba(15,15,20,0.99) 100%)'
-                : 'linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.99) 100%)',
-              border: activeBPTemplate 
-                ? `1px solid rgba(238,209,109,0.3)` 
-                : `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 标题栏 */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div 
-                  className="w-6 h-6 rounded-lg flex items-center justify-center ring-1"
-                  style={{
-                    backgroundColor: activeBPTemplate ? 'rgba(238,209,109,0.2)' : 'rgba(59,130,246,0.2)',
-                  }}
-                >
-                  {activeBPTemplate ? (
-                    <BoltIcon className="w-3.5 h-3.5" style={{ color: '#eed16d' }} />
-                  ) : (
-                    <EditIcon className="w-3.5 h-3.5 text-blue-400" />
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold" style={{ color: isDark ? '#fff' : '#0f172a' }}>
-                  {activeBPTemplate 
-                    ? `BP 模式 - ${activeBPTemplate.title}` 
-                    : activeSmartTemplate || activeSmartPlusTemplate
-                    ? (activeSmartTemplate?.title || activeSmartPlusTemplate?.title)
-                    : '编辑提示词'}
-                </h3>
-                {/* 作者显示 - 所有模式 */}
-                {(activeBPTemplate?.author || activeSmartTemplate?.author || activeSmartPlusTemplate?.author) && (
-                  <span 
-                    className="text-xs font-medium"
-                    style={{ color: activeBPTemplate ? '#eed16d' : '#3b82f6' }}
-                  >
-                    @{activeBPTemplate?.author || activeSmartTemplate?.author || activeSmartPlusTemplate?.author}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => setIsPromptExpanded(false)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-105 hover:bg-gray-500/20"
-                style={{ color: isDark ? '#9ca3af' : '#6b7280' }}
-                title="关闭 (Esc)"
-              >
-                <X className="w-4 h-4 hover:text-gray-400" />
-              </button>
-            </div>
-            
-            {/* BP模式：变量配置 + 只读提示词 */}
-            {activeBPTemplate ? (
-              <>
-                {/* BP变量配置区域 - 放大版 */}
-                <div 
-                  className="p-4 mb-4 rounded-xl"
-                  style={{
-                    background: isDark 
-                      ? 'linear-gradient(135deg, rgba(238,209,109,0.12) 0%, rgba(238,209,109,0.06) 100%)'
-                      : 'rgba(238,209,109,0.1)',
-                    border: `1px solid ${isDark ? 'rgba(238,209,109,0.2)' : 'rgba(238,209,109,0.15)'}`,
-                  }}
-                >
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="text-xs font-semibold" style={{ color: '#eed16d' }}>变量配置</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(238,209,109,0.2)', color: '#eed16d' }}>
-                      填写变量后生成提示词
-                    </span>
-                  </div>
-                  
-                  {/* 变量输入列表 */}
-                  <div className="space-y-4">
-                    {(activeBPTemplate.bpFields?.filter(f => f.type === 'input') || []).map(field => (
-                      <div key={field.id}>
-                        <label 
-                          className="text-xs font-medium mb-2 flex justify-between"
-                          style={{ color: isDark ? '#d1d5db' : '#4b5563' }}
-                        >
-                          <span>{field.label}</span>
-                          <span className="text-[10px] font-mono" style={{ color: 'rgba(238,209,109,0.7)' }}>/{field.name}</span>
-                        </label>
-                        <input 
-                          type="text"
-                          value={bpInputs[field.id] || ''}
-                          onChange={(e) => setBpInput(field.id, e.target.value)}
-                          className="w-full text-sm p-3 rounded-lg transition-all"
-                          style={{
-                            background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                            border: `1px solid ${isDark ? 'rgba(238,209,109,0.25)' : 'rgba(238,209,109,0.2)'}`,
-                            color: isDark ? '#fff' : '#0f172a',
-                          }}
-                          placeholder={`输入 ${field.label}...`}
-                        />
-                      </div>
-                    ))}
-                    
-                    {/* 智能体提示 */}
-                    {(activeBPTemplate.bpFields?.filter(f => f.type === 'agent') || []).length > 0 && (
-                      <div 
-                        className="p-3 rounded-lg text-center"
-                        style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}
-                      >
-                        <span className="text-[11px]" style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>
-                          🤖 包含 {activeBPTemplate.bpFields?.filter(f => f.type === 'agent').length} 个智能体变量，点击生成时自动处理
-                        </span>
-                      </div>
-                    )}
-                    
-                    {(activeBPTemplate.bpFields?.filter(f => f.type === 'input') || []).length === 0 && (
-                      <p 
-                        className="text-xs italic p-3 rounded text-center"
-                        style={{ 
-                          background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                          color: isDark ? '#6b7280' : '#9ca3af',
-                        }}
-                      >
-                        此模板仅含智能体变量，点击生成自动运行
-                      </p>
-                    )}
-                  </div>
-                </div>
-                
-                {/* 生成的提示词预览（只读） */}
-                {canViewPrompt && prompt && (
-                  <div className="mb-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-medium" style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>生成的提示词</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: isDark ? '#6b7280' : '#9ca3af' }}>
-                        只读
-                      </span>
-                    </div>
-                    <div 
-                      className="w-full min-h-[120px] max-h-[200px] overflow-y-auto p-4 rounded-xl text-sm leading-relaxed"
-                      style={{
-                        background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                        color: isDark ? '#d1d5db' : '#374151',
-                      }}
-                    >
-                      {prompt || <span style={{ color: isDark ? '#4b5563' : '#9ca3af' }}>填写变量后，点击生成查看结果</span>}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              /* 普通模式：可编辑的提示词输入框 */
-              <textarea
-                ref={expandedPromptRef}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="描述想生成的画面..."
-                className="w-full h-[300px] p-4 rounded-xl resize-none text-sm leading-relaxed"
-                style={{
-                  background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                  color: isDark ? '#fff' : '#0f172a',
-                }}
-              />
-            )}
-            
-            {/* 底部提示 */}
-            <div className="flex items-center justify-between mt-3">
-              <p className="text-[10px]" style={{ color: isDark ? '#6b7280' : '#9ca3af' }}>
-                按 Esc 或点击外部关闭
-              </p>
-              <button
-                onClick={() => {
-                  setIsPromptExpanded(false);
-                  // BP模式下，点击完成后自动触发智能体处理（相当于点击生成按钮）
-                  if (activeBPTemplate && canGenerateSmartPrompt) {
-                    handleGenerateSmartPrompt();
-                  }
-                }}
-                className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:scale-105 active:scale-95"
-                style={{
-                  backgroundColor: activeBPTemplate ? '#eed16d' : '#3b82f6',
-                  color: activeBPTemplate ? '#1a1a2e' : '#fff',
-                  boxShadow: activeBPTemplate ? '0 10px 25px -5px rgba(238,209,109,0.25)' : '0 10px 25px -5px rgba(59,130,246,0.25)',
-                }}
-              >
-                {activeBPTemplate ? '完成并生成提示词' : '完成'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* 帮助文档弹窗 */}
       {isHelpOpen && (
@@ -1222,6 +689,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onEditIdea,
   onToggleFavorite,
   onClearRecentUsage,
+  onCollapse,
 }) => {
   const { theme } = useTheme();
   
@@ -1329,23 +797,20 @@ const RightPanel: React.FC<RightPanelProps> = ({
   };
   
   return (
-  <aside className="w-[220px] flex-shrink-0 flex flex-col h-full liquid-panel border-l z-20">
+  <aside className="w-full flex flex-col h-full z-20">
      {/* 标题栏 */}
-     <div className="liquid-panel-section flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-blue-500/15 flex items-center justify-center">
+     <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-5 h-5 rounded bg-blue-500/15 flex items-center justify-center flex-shrink-0">
             <Star className="w-3 h-3 text-blue-400 fill-current" />
           </div>
-          <h2 className="text-[12px] font-semibold" style={{ color: theme.colors.textPrimary }}>收藏创意</h2>
+          <h2 className="text-[12px] font-semibold truncate" style={{ color: theme.colors.textPrimary }}>收藏创意</h2>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setAddIdeaModalOpen(true)}
             className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:scale-105 press-scale"
-            style={{ 
-              background: 'var(--glass-bg)',
-              color: theme.colors.textSecondary 
-            }}
+            style={{ color: theme.colors.textSecondary }}
             title="新建创意"
           >
             <PlusCircleIcon className="w-3 h-3" />
@@ -1353,14 +818,21 @@ const RightPanel: React.FC<RightPanelProps> = ({
           <button
             onClick={() => setView('local-library')}
             className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:scale-105 press-scale"
-            style={{ 
-              background: 'var(--glass-bg)',
-              color: theme.colors.textSecondary 
-            }}
+            style={{ color: theme.colors.textSecondary }}
             title="全部创意库"
           >
             <Grid3x3 className="w-3 h-3" />
           </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:scale-105 press-scale"
+              style={{ color: theme.colors.textSecondary }}
+              title="收起面板"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
      </div>
      
@@ -1479,6 +951,8 @@ const Canvas: React.FC<CanvasProps> = ({
   isImportingById,
   onCanvasImageGenerated,
   onCanvasCreated,
+  onCanvasDeleted,
+  protectedFolderIds,
   pendingCanvasImage,
   onClearPendingCanvasImage,
   onAddToCanvas,
@@ -1590,6 +1064,7 @@ const Canvas: React.FC<CanvasProps> = ({
         <PebblingCanvas 
           onImageGenerated={onCanvasImageGenerated} 
           onCanvasCreated={onCanvasCreated}
+          onCanvasDeleted={onCanvasDeleted}
           creativeIdeas={creativeIdeas}
           isActive={view === 'canvas'}
           pendingImageToAdd={pendingCanvasImage}
@@ -1623,6 +1098,7 @@ const Canvas: React.FC<CanvasProps> = ({
             onCreateCreativeIdea={onCreateCreativeIdea}
             isActive={(view as string) !== 'canvas'}
             onAddToCanvas={onAddToCanvas}
+            protectedFolderIds={protectedFolderIds}
           />
           
           {/* 生成结果浮层 - 毛玻璃效果 + 最小化联动 */}
@@ -1748,6 +1224,127 @@ const App: React.FC = () => {
   
   const [view, setViewInternal] = useState<'editor' | 'local-library' | 'canvas' | 'comfyui'>('editor'); // 默认桌面模式
   
+  // 右侧创意库面板状态
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('rightPanelCollapsed') === 'true'; } catch { return false; }
+  });
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('rightPanelWidth') || '240', 10); } catch { return 240; }
+  });
+  const [rightPanelHeight, setRightPanelHeight] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('rightPanelHeight') || '0', 10) || 0; } catch { return 0; } // 0 = 自动全高
+  });
+
+  // 持久化右侧面板状态
+  useEffect(() => { try { localStorage.setItem('rightPanelCollapsed', String(rightPanelCollapsed)); } catch {} }, [rightPanelCollapsed]);
+  useEffect(() => { try { localStorage.setItem('rightPanelWidth', String(rightPanelWidth)); } catch {} }, [rightPanelWidth]);
+  useEffect(() => { try { localStorage.setItem('rightPanelHeight', String(rightPanelHeight)); } catch {} }, [rightPanelHeight]);
+
+  // 面板边缘拖拽调整大小
+  const resizeRef = useRef<{ edge: 'left' | 'bottom' | 'bottom-left'; startMouse: { x: number; y: number }; startSize: { w: number; h: number }; startPos: { x: number; y: number }; target: 'app' | 'canvas' } | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const { edge, startMouse, startSize, startPos, target } = resizeRef.current;
+      const dx = e.clientX - startMouse.x;
+      const dy = e.clientY - startMouse.y;
+
+      if (target === 'app') {
+        if (edge === 'left' || edge === 'bottom-left') {
+          const newW = Math.max(180, Math.min(500, startSize.w - dx));
+          setRightPanelWidth(newW);
+          // 也更新面板 x 位置（向左拉宽 => x 减小）
+          setLibraryPanelPos(prev => ({ ...prev, x: startPos.x + dx }));
+        }
+        if (edge === 'bottom' || edge === 'bottom-left') {
+          const newH = Math.max(200, Math.min(window.innerHeight - 20, startSize.h + dy));
+          setRightPanelHeight(newH);
+        }
+      }
+    };
+    const handleMouseUp = () => { resizeRef.current = null; document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
+  // ====== 浮动窗口拖拽 + 锁定 ======
+  // 左下角工具栏位置
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('floatToolbarPos'); return s ? JSON.parse(s) : { x: 12, y: -1 }; } catch { return { x: 12, y: -1 }; }
+  });
+  const [toolbarLocked, setToolbarLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('floatToolbarLocked') === 'true'; } catch { return false; }
+  });
+  // 右侧素材库图标位置（收起态）
+  const [libraryIconPos, setLibraryIconPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('floatLibraryIconPos'); return s ? JSON.parse(s) : { x: -1, y: -1 }; } catch { return { x: -1, y: -1 }; }
+  });
+  const [libraryIconLocked, setLibraryIconLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('floatLibraryIconLocked') === 'true'; } catch { return false; }
+  });
+  // 右侧素材库面板位置（展开态）
+  const [libraryPanelPos, setLibraryPanelPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('floatLibraryPanelPos'); return s ? JSON.parse(s) : { x: -1, y: 12 }; } catch { return { x: -1, y: 12 }; }
+  });
+  const [libraryPanelLocked, setLibraryPanelLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('floatLibraryPanelLocked') === 'true'; } catch { return false; }
+  });
+
+  // 持久化浮动窗口状态
+  useEffect(() => { try { localStorage.setItem('floatToolbarPos', JSON.stringify(toolbarPos)); } catch {} }, [toolbarPos]);
+  useEffect(() => { try { localStorage.setItem('floatToolbarLocked', String(toolbarLocked)); } catch {} }, [toolbarLocked]);
+  useEffect(() => { try { localStorage.setItem('floatLibraryIconPos', JSON.stringify(libraryIconPos)); } catch {} }, [libraryIconPos]);
+  useEffect(() => { try { localStorage.setItem('floatLibraryIconLocked', String(libraryIconLocked)); } catch {} }, [libraryIconLocked]);
+  useEffect(() => { try { localStorage.setItem('floatLibraryPanelPos', JSON.stringify(libraryPanelPos)); } catch {} }, [libraryPanelPos]);
+  useEffect(() => { try { localStorage.setItem('floatLibraryPanelLocked', String(libraryPanelLocked)); } catch {} }, [libraryPanelLocked]);
+
+  // 通用拖拽 ref
+  const dragRef = useRef<{ target: 'toolbar' | 'libraryIcon' | 'libraryPanel'; startMouse: { x: number; y: number }; startPos: { x: number; y: number } } | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.startMouse.x;
+      const dy = e.clientY - dragRef.current.startMouse.y;
+      const newX = dragRef.current.startPos.x + dx;
+      const newY = dragRef.current.startPos.y + dy;
+      const clampedX = Math.max(0, Math.min(window.innerWidth - 60, newX));
+      const clampedY = Math.max(0, Math.min(window.innerHeight - 40, newY));
+      if (dragRef.current.target === 'toolbar') setToolbarPos({ x: clampedX, y: clampedY });
+      else if (dragRef.current.target === 'libraryIcon') setLibraryIconPos({ x: clampedX, y: clampedY });
+      else if (dragRef.current.target === 'libraryPanel') setLibraryPanelPos({ x: clampedX, y: clampedY });
+    };
+    const handleMouseUp = () => { dragRef.current = null; };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
+  // 辅助：计算浮动窗口的 style（支持 x=-1 表示 right 定位，y=-1 表示 bottom 定位）
+  const getFloatStyle = useCallback((pos: { x: number; y: number }) => {
+    const style: React.CSSProperties = { position: 'fixed', zIndex: 90 };
+    if (pos.x === -1) style.right = 12; else style.left = pos.x;
+    if (pos.y === -1) style.bottom = 12; else style.top = pos.y;
+    return style;
+  }, []);
+
+  // 辅助：开始拖拽
+  const startDrag = useCallback((target: 'toolbar' | 'libraryIcon' | 'libraryPanel', e: React.MouseEvent, el: HTMLElement) => {
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    dragRef.current = {
+      target,
+      startMouse: { x: e.clientX, y: e.clientY },
+      startPos: { x: rect.left, y: rect.top },
+    };
+    // 开始拖拽后，位置切换为绝对 left/top
+    if (target === 'toolbar') setToolbarPos({ x: rect.left, y: rect.top });
+    else if (target === 'libraryIcon') setLibraryIconPos({ x: rect.left, y: rect.top });
+    else if (target === 'libraryPanel') setLibraryPanelPos({ x: rect.left, y: rect.top });
+  }, []);
+
   // 画布保存函数引用（用于切换TAB和关闭时自动保存）
   const canvasSaveRef = useRef<(() => Promise<void>) | null>(null);
   
@@ -2861,12 +2458,12 @@ const App: React.FC = () => {
       });
     }, [safeDesktopSave]);
 
-    // 画布创建时创建对应的桌面文件夹
-    const handleCanvasCreated = useCallback((canvasId: string, canvasName: string) => {
+    // 画布创建时创建对应的桌面文件夹（返回 folderId 以供立即使用）
+    const handleCanvasCreated = useCallback((canvasId: string, canvasName: string): string | undefined => {
       // 检查是否已有对应文件夹
       if (canvasToFolderMap[canvasId]) {
         console.log('[Canvas] 画布已有对应文件夹:', canvasToFolderMap[canvasId]);
-        return;
+        return canvasToFolderMap[canvasId];
       }
       
       // 创建新的桌面文件夹
@@ -2879,6 +2476,7 @@ const App: React.FC = () => {
         position: { x: 0, y: 0 }, // 位置将由handleAddToDesktop自动计算
         itemIds: [],
         color: '#3b82f6', // 蓝色标识画布文件夹
+        linkedCanvasId: canvasId, // 关联画布ID
         createdAt: now,
         updatedAt: now,
       };
@@ -2892,7 +2490,47 @@ const App: React.FC = () => {
       localStorage.setItem('canvas_folder_map', JSON.stringify(newMap));
       
       console.log('[Canvas] 创建画布文件夹:', canvasName, '->', folderId);
+      return folderId;
     }, [canvasToFolderMap, handleAddToDesktop]);
+
+    // 画布删除时，将对应桌面文件夹标记为"已归档"
+    const handleCanvasDeleted = useCallback((canvasId: string) => {
+      const folderId = canvasToFolderMap[canvasId];
+      if (!folderId) return;
+      
+      // 标记文件夹为已归档
+      setDesktopItems(prev => {
+        const updated = prev.map(item => {
+          if (item.id === folderId && item.type === 'folder') {
+            const folder = item as DesktopFolderItem;
+            return {
+              ...folder,
+              isArchived: true,
+              linkedCanvasId: undefined, // 解除画布关联
+              name: folder.name.replace(/^🎨\s*/, '📦 ') + '（已归档）',
+              color: '#6b7280', // 灰色标识已归档
+              updatedAt: Date.now(),
+            };
+          }
+          return item;
+        });
+        setTimeout(() => safeDesktopSave(updated), 0);
+        return updated;
+      });
+      
+      // 从映射中移除
+      const newMap = { ...canvasToFolderMap };
+      delete newMap[canvasId];
+      setCanvasToFolderMap(newMap);
+      localStorage.setItem('canvas_folder_map', JSON.stringify(newMap));
+      
+      console.log('[Canvas] 画布已删除，文件夹已归档:', folderId);
+    }, [canvasToFolderMap, safeDesktopSave]);
+
+    // 受保护的文件夹ID集合（关联活跃画布，不可删除）
+    const protectedFolderIds = useMemo(() => {
+      return new Set(Object.values(canvasToFolderMap));
+    }, [canvasToFolderMap]);
 
     // 🔧 提取视频首帧作为缩略图
     const extractVideoThumbnail = async (videoUrl: string): Promise<string | null> => {
@@ -3073,6 +2711,26 @@ const App: React.FC = () => {
         }
       }
       
+      // 根据 prompt 内容生成简洁名称（不再统一加「画布」前缀）
+      const generateItemName = (promptText: string, isVideoItem: boolean): string => {
+        // 已经有明确语义的标签直接使用
+        const knownLabels = ['抠图结果', '放大结果', 'Resize结果', '画板输出', '工具输出', '视频输出', '视频生成结果', 'Magic结果'];
+        for (const label of knownLabels) {
+          if (promptText === label) return label;
+        }
+        // ComfyUI / RunningHub 结果
+        if (promptText.startsWith('ComfyUI')) return promptText;
+        if (promptText.startsWith('RunningHub:')) return promptText;
+        // 帧提取
+        if (promptText.startsWith('视频') && promptText.includes('帧')) return promptText;
+        if (promptText.startsWith('帧 ')) return promptText;
+        // 常规 prompt：截取前15个字符
+        const trimmed = promptText.trim();
+        if (!trimmed) return isVideoItem ? '视频' : '图片';
+        const short = trimmed.length > 15 ? trimmed.slice(0, 15) + '…' : trimmed;
+        return short;
+      };
+
       // 创建新的桌面项目
       const now = Date.now();
       let newItem: DesktopItem;
@@ -3100,7 +2758,7 @@ const App: React.FC = () => {
         newItem = {
           id: `canvas-video-${now}-${Math.random().toString(36).substring(2, 8)}`,
           type: 'video',
-          name: `画布(视频...)`,
+          name: generateItemName(prompt, true),
           position: { x: 0, y: 0 },
           videoUrl: finalUrl,
           thumbnailUrl: thumbnailUrl,
@@ -3113,7 +2771,7 @@ const App: React.FC = () => {
         newItem = {
           id: `canvas-img-${now}-${Math.random().toString(36).substring(2, 8)}`,
           type: 'image',
-          name: `画布(${prompt.slice(0, 10)}...)`,
+          name: generateItemName(prompt, false),
           position: { x: 0, y: 0 },
           imageUrl: finalUrl,
           prompt: prompt,
@@ -3122,13 +2780,18 @@ const App: React.FC = () => {
         } as DesktopImageItem;
       }
       
-      // 如果有画布ID，尝试添加到对应文件夹
-      const folderId = canvasId ? canvasToFolderMap[canvasId] : undefined;
+      // 始终添加到对应画布文件夹（如不存在则自动创建）
+      let folderId = canvasId ? canvasToFolderMap[canvasId] : undefined;
+      
+      // 如果画布有ID和名称但还没有对应文件夹，自动创建
+      if (!folderId && canvasId && canvasName) {
+        folderId = handleCanvasCreated(canvasId, canvasName);
+      }
+      
+      // 添加项目到桌面
+      handleAddToDesktop(newItem as DesktopImageItem);
       
       if (folderId) {
-        // 添加项目到桌面
-        handleAddToDesktop(newItem as DesktopImageItem);
-        
         // 将项目添加到画布文件夹
         setDesktopItems(prev => {
           const folder = prev.find(item => item.id === folderId) as DesktopFolderItem | undefined;
@@ -3146,11 +2809,9 @@ const App: React.FC = () => {
         });
         console.log('[Canvas] 项目已添加到画布文件夹:', canvasName, newItem.name);
       } else {
-        // 无对应文件夹，直接添加到桌面
-        handleAddToDesktop(newItem as DesktopImageItem);
-        console.log('[Canvas] 项目已同步到桌面:', newItem.name);
+        console.log('[Canvas] 项目已同步到桌面（无画布ID）:', newItem.name);
       }
-    }, [handleAddToDesktop, canvasToFolderMap, safeDesktopSave]);
+    }, [handleAddToDesktop, canvasToFolderMap, handleCanvasCreated, safeDesktopSave]);
 
   const handleGenerateClick = useCallback(async () => {
     // 检查API配置
@@ -3767,7 +3428,7 @@ const App: React.FC = () => {
     setDesktopSelectedIds([]);
   }, [generationHistory, creativeIdeas]);
 
-  const { theme, themeName } = useTheme();
+  const { theme, themeName, setTheme } = useTheme();
   const isDark = themeName !== 'light';
 
   // 调试：挂载后打日志，便于确认是否进入 App
@@ -3822,45 +3483,80 @@ const App: React.FC = () => {
         onChange={handleImportIdeas}
       />
       
-      {/* 左侧面板 - 画布模式下隐藏 */}
-      {view !== 'canvas' && (
-      <div className="flex-shrink-0">
-        <LeftPanel 
-            files={files}
-            activeFileIndex={activeFileIndex}
-            onFileSelection={handleFileSelection}
-            onFileRemove={handleFileRemove}
-            onFileSelect={setActiveFileIndex}
-            onTriggerUpload={() => fileInputRef.current?.click()}
-            onSettingsClick={() => setSettingsModalOpen(true)}
-            currentApiMode={
-              thirdPartyApiConfig.enabled && thirdPartyApiConfig.apiKey && thirdPartyApiConfig.baseUrl
-                ? 'local-thirdparty'
-                : 'local-gemini'
-            }
-            prompt={prompt}
-            setPrompt={handleSetPrompt}
-            activeSmartTemplate={activeSmartTemplate}
-            activeSmartPlusTemplate={activeSmartPlusTemplate}
-            activeBPTemplate={activeBPTemplate}
-            bpInputs={bpInputs}
-            setBpInput={handleBpInputChange}
-            smartPlusOverrides={smartPlusOverrides}
-            setSmartPlusOverrides={setSmartPlusOverrides}
-            handleGenerateSmartPrompt={handleGenerateSmartPrompt}
-            canGenerateSmartPrompt={canGenerateSmartPrompt}
-            smartPromptGenStatus={smartPromptGenStatus}
-            onCancelSmartPrompt={handleCancelSmartPrompt}
-            aspectRatio={aspectRatio}
-            setAspectRatio={setAspectRatio}
-            imageSize={imageSize}
-            setImageSize={setImageSize}
-            isThirdPartyApiEnabled={thirdPartyApiConfig.enabled}
-            onClearTemplate={handleClearTemplate}
-            backendStatus={backendStatus}
-          />
+      {/* 浮动工具栏 - 可拖拽/可锁定 */}
+      <div 
+        ref={(el) => { if (el) el.dataset.floatId = 'toolbar'; }}
+        className={`flex items-center gap-1.5 rounded-2xl backdrop-blur-xl border shadow-lg transition-opacity select-none ${
+          view === 'canvas' ? 'opacity-70 hover:opacity-100' : ''
+        }`}
+        style={{ 
+          ...getFloatStyle(toolbarPos),
+          background: isDark ? 'rgba(20,20,25,0.85)' : 'rgba(255,255,255,0.9)',
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          padding: '6px 10px',
+        }}
+      >
+        {/* 拖拽手柄 */}
+        {!toolbarLocked && (
+          <div 
+            className="cursor-grab active:cursor-grabbing flex items-center mr-0.5"
+            style={{ color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' }}
+            onMouseDown={(e) => { const el = e.currentTarget.parentElement; if (el) startDrag('toolbar', e, el); }}
+          >
+            <GripVertical className="w-3 h-3" />
+          </div>
+        )}
+        <div 
+          className="w-6 h-6 rounded-md flex items-center justify-center shadow-sm flex-shrink-0"
+          style={{ backgroundColor: isDark ? '#000' : '#f3f4f6' }}
+        >
+          <img src="/icons/tafa-logo.jpg" alt="TAFA" className="w-3.5 h-3.5 object-contain rounded-sm" />
         </div>
-      )}
+        <div className="mr-0.5">
+          <h1 className="text-[10px] font-bold leading-tight" style={{ color: isDark ? '#fff' : '#0f172a' }}>TAFA</h1>
+          <p className="text-[7px] font-medium" style={{ color: isDark ? '#6b7280' : '#9ca3af' }}>天津美院 · AI</p>
+        </div>
+        {/* 后端状态指示灯 */}
+        <div 
+          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+            backendStatus === 'connected' ? 'bg-green-400' : backendStatus === 'checking' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'
+          }`}
+          title={backendStatus === 'connected' ? '后端连接正常' : backendStatus === 'checking' ? '检测中...' : '后端已断开'}
+        />
+        <div className={`w-px h-4 flex-shrink-0 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
+        {/* 主题切换 */}
+        <button
+          onClick={() => setTheme(themeName === 'light' ? 'dark' : 'light')}
+          className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:scale-105 flex-shrink-0"
+          style={{ color: isDark ? '#9ca3af' : '#64748b' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          title={isDark ? '浅色模式' : '深色模式'}
+        >
+          {isDark ? <Sun className="w-3 h-3" /> : <Moon className="w-3 h-3" />}
+        </button>
+        {/* 设置 */}
+        <button
+          onClick={() => setSettingsModalOpen(true)}
+          className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:scale-105 flex-shrink-0"
+          style={{ color: isDark ? '#9ca3af' : '#64748b' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          title="设置"
+        >
+          <SettingsIcon className="w-3 h-3" />
+        </button>
+        {/* 锁定/解锁 */}
+        <button
+          onClick={() => setToolbarLocked(!toolbarLocked)}
+          className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110 flex-shrink-0"
+          style={{ color: toolbarLocked ? (isDark ? '#60a5fa' : '#3b82f6') : (isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)') }}
+          title={toolbarLocked ? '点击解锁（可拖拽移动）' : '点击锁定（防止误拖动）'}
+        >
+          {toolbarLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+        </button>
+      </div>
+      
       <div className="relative flex-1 flex min-w-0">
         <Canvas 
           view={view}
@@ -3916,95 +3612,159 @@ const App: React.FC = () => {
           isImporting={isImporting}
           isImportingById={isImportingById}
           onCanvasImageGenerated={handleCanvasImageGenerated}
+          onCanvasCreated={handleCanvasCreated}
+          onCanvasDeleted={handleCanvasDeleted}
+          protectedFolderIds={protectedFolderIds}
           pendingCanvasImage={pendingCanvasImage}
           onClearPendingCanvasImage={handleClearPendingCanvasImage}
           onAddToCanvas={handleAddToCanvas}
           canvasSaveRef={canvasSaveRef}
         />
-        {view === 'editor' && (
-             <div className="absolute left-1/2 -translate-x-1/2 z-30 transition-all duration-300 bottom-6 flex items-center gap-3">
-                {/* 批量生成数量选择器 - 简洁设计 */}
-                <div 
-                  className="flex items-center backdrop-blur-xl rounded-full px-1.5 py-1 border transition-colors"
-                  style={{
-                    backgroundColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.8)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-                  }}
-                >
-                  {/* 减少按钮 */}
-                  <button
-                    onClick={() => setBatchCount(Math.max(1, batchCount - 1))}
-                    disabled={batchCount <= 1}
-                    className="w-5 h-5 rounded-full flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                    style={{
-                      color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!(batchCount <= 1)) {
-                        e.currentTarget.style.color = isDark ? 'white' : 'black';
-                        e.currentTarget.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)';
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  {/* 数量显示 */}
-                  <span 
-                    className="w-6 text-center text-xs font-medium"
-                    style={{ color: isDark ? 'white' : 'black' }}
-                  >
-                    {batchCount}
-                  </span>
-                  {/* 增加按钮 */}
-                  <button
-                    onClick={() => setBatchCount(Math.min(20, batchCount + 1))}
-                    disabled={batchCount >= 20}
-                    className="w-5 h-5 rounded-full flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                    style={{
-                      color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!(batchCount >= 20)) {
-                        e.currentTarget.style.color = isDark ? 'white' : 'black';
-                        e.currentTarget.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)';
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </div>
-                <GenerateButton 
-                    onClick={handleGenerateClick}
-                    disabled={!canGenerate}
-                    status={status}
-                    hasMinimizedResult={isResultMinimized && (status === ApiStatus.Loading || status === ApiStatus.Success || status === ApiStatus.Error)}
-                    onExpandResult={() => setIsResultMinimized(false)}
-                />
-             </div>
-        )}
+        {/* 编辑器底部的批量生成UI已移除 - 图片生成功能已整合到画布的图片节点中 */}
       </div>
-      {/* 右侧面板 - 画布模式下隐藏 */}
+      {/* 右侧素材库 - 浮动窗口，可拖拽/可锁定 */}
       {view !== 'canvas' && (
-      <div className="flex-shrink-0">
-        <RightPanel 
-          creativeIdeas={creativeIdeas}
-          handleUseCreativeIdea={handleUseCreativeIdea}
-          setAddIdeaModalOpen={() => setAddIdeaModalOpen(true)}
-          setView={setView}
-          onDeleteIdea={handleDeleteCreativeIdea}
-          onEditIdea={handleStartEditIdea}
-          onToggleFavorite={handleToggleFavorite}
-          onClearRecentUsage={handleClearRecentUsage}
-        />
-      </div>
+        rightPanelCollapsed ? (
+          /* 收起态 - 浮动小图标，可拖拽 */
+          <div
+            className="select-none flex items-center gap-1 rounded-2xl backdrop-blur-xl border shadow-lg transition-all"
+            style={{
+              ...getFloatStyle(libraryIconPos),
+              background: isDark ? 'rgba(20,20,25,0.85)' : 'rgba(255,255,255,0.9)',
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              padding: '4px 6px',
+            }}
+          >
+            {/* 拖拽手柄 */}
+            {!libraryIconLocked && (
+              <div
+                className="cursor-grab active:cursor-grabbing flex items-center"
+                style={{ color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' }}
+                onMouseDown={(e) => { const el = e.currentTarget.parentElement; if (el) startDrag('libraryIcon', e, el); }}
+              >
+                <GripVertical className="w-2.5 h-2.5" />
+              </div>
+            )}
+            {/* 展开按钮 */}
+            <button
+              onClick={() => setRightPanelCollapsed(false)}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+              style={{ color: isDark ? '#60a5fa' : '#3b82f6' }}
+              title="展开创意库"
+            >
+              <Star className="w-4 h-4 fill-current" />
+            </button>
+            {/* 锁定 */}
+            <button
+              onClick={() => setLibraryIconLocked(!libraryIconLocked)}
+              className="w-4 h-4 rounded flex items-center justify-center transition-all hover:scale-110"
+              style={{ color: libraryIconLocked ? (isDark ? '#60a5fa' : '#3b82f6') : (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)') }}
+              title={libraryIconLocked ? '点击解锁' : '点击锁定'}
+            >
+              {libraryIconLocked ? <Lock className="w-2 h-2" /> : <Unlock className="w-2 h-2" />}
+            </button>
+          </div>
+        ) : (
+          /* 展开态 - 浮动面板，可拖拽/可锁定/可拉伸调整大小 */
+          <div 
+            data-float-panel
+            className="select-none flex flex-col rounded-2xl border shadow-2xl"
+            style={{
+              ...getFloatStyle(libraryPanelPos),
+              width: rightPanelWidth,
+              height: rightPanelHeight > 0 ? rightPanelHeight : 'calc(100vh - 24px)',
+              maxHeight: 'calc(100vh - 10px)',
+              background: isDark ? 'rgba(20,20,25,0.95)' : 'rgba(255,255,255,0.97)',
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              backdropFilter: 'blur(20px)',
+              overflow: 'hidden',
+              position: 'fixed',
+              zIndex: 85,
+            }}
+          >
+            {/* 左侧边缘拖拽调宽 */}
+            <div
+              className="absolute left-0 top-2 bottom-2 w-1.5 cursor-ew-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ew-resize';
+                document.body.style.userSelect = 'none';
+                resizeRef.current = { edge: 'left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: rightPanelWidth, h: rightPanelHeight || rect.height }, startPos: { x: rect.left, y: rect.top }, target: 'app' };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-l transition-colors group-hover:${isDark ? 'bg-blue-500/40' : 'bg-blue-400/40'}`} />
+            </div>
+            {/* 底部边缘拖拽调高 */}
+            <div
+              className="absolute bottom-0 left-2 right-2 h-1.5 cursor-ns-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ns-resize';
+                document.body.style.userSelect = 'none';
+                resizeRef.current = { edge: 'bottom', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: rightPanelWidth, h: rightPanelHeight || rect.height }, startPos: { x: rect.left, y: rect.top }, target: 'app' };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-b transition-colors group-hover:${isDark ? 'bg-blue-500/40' : 'bg-blue-400/40'}`} />
+            </div>
+            {/* 左下角拖拽同时调宽+调高 */}
+            <div
+              className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nesw-resize';
+                document.body.style.userSelect = 'none';
+                resizeRef.current = { edge: 'bottom-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: rightPanelWidth, h: rightPanelHeight || rect.height }, startPos: { x: rect.left, y: rect.top }, target: 'app' };
+              }}
+            />
+
+            {/* 拖拽标题栏 */}
+            <div className="flex items-center gap-1 px-2 py-1.5 flex-shrink-0" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
+              {/* 拖拽手柄 */}
+              {!libraryPanelLocked && (
+                <div
+                  className="cursor-grab active:cursor-grabbing flex items-center"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' }}
+                  onMouseDown={(e) => { const el = e.currentTarget.closest('[data-float-panel]') as HTMLElement; if (el) startDrag('libraryPanel', e, el); }}
+                >
+                  <GripVertical className="w-3 h-3" />
+                </div>
+              )}
+              <span className="flex-1" />
+              {/* 锁定 */}
+              <button
+                onClick={() => setLibraryPanelLocked(!libraryPanelLocked)}
+                className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110"
+                style={{ color: libraryPanelLocked ? (isDark ? '#60a5fa' : '#3b82f6') : (isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)') }}
+                title={libraryPanelLocked ? '点击解锁（可拖拽）' : '点击锁定（防止误拖动）'}
+              >
+                {libraryPanelLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+              </button>
+            </div>
+            {/* 面板内容 */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <RightPanel 
+                creativeIdeas={creativeIdeas}
+                handleUseCreativeIdea={handleUseCreativeIdea}
+                setAddIdeaModalOpen={() => setAddIdeaModalOpen(true)}
+                setView={setView}
+                onDeleteIdea={handleDeleteCreativeIdea}
+                onEditIdea={handleStartEditIdea}
+                onToggleFavorite={handleToggleFavorite}
+                onClearRecentUsage={handleClearRecentUsage}
+                onCollapse={() => setRightPanelCollapsed(true)}
+              />
+            </div>
+          </div>
+        )
       )}
       
       <style>{`

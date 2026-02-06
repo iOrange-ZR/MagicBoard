@@ -9,6 +9,7 @@ import ContextMenu from './ContextMenu';
 import PresetCreationModal from './PresetCreationModal';
 import PresetInstantiationModal from './PresetInstantiationModal';
 import CanvasNameBadge from './CanvasNameBadge';
+import ImageGenPanel from './ImageGenPanel';
 import { editImageWithGemini, chatWithThirdPartyApi, getThirdPartyConfig, ImageEditConfig } from '../../services/geminiService';
 import { runAIApp, getAIAppInfo } from '../../services/api/runninghub';
 import { comfyuiSubmitPrompt, comfyuiGetHistory, getComfyUIConfig, getComfyUIWorkflows } from '../../services/api/comfyui';
@@ -301,6 +302,7 @@ const extractImageMetadata = async (imageUrl: string): Promise<ImageMetadata> =>
 interface PebblingCanvasProps {
   onImageGenerated?: (imageUrl: string, prompt: string, canvasId?: string, canvasName?: string, isVideo?: boolean) => void; // 回调同步到桌面（含画布ID用于联动；isVideo 用于 ComfyUI 视频 URL 正确保存）
   onCanvasCreated?: (canvasId: string, canvasName: string) => void; // 画布创建回调（用于桌面联动创建文件夹）
+  onCanvasDeleted?: (canvasId: string) => void; // 画布删除回调（用于桌面文件夹标记归档）
   creativeIdeas?: CreativeIdea[]; // 主项目创意库
   isActive?: boolean; // 画布是否处于活动状态（用于快捷键作用域控制）
   pendingImageToAdd?: { imageUrl: string; imageName?: string } | null; // 待添加的图片（从桌面添加）
@@ -310,7 +312,8 @@ interface PebblingCanvasProps {
 
 const PebblingCanvas: React.FC<PebblingCanvasProps> = ({ 
   onImageGenerated, 
-  onCanvasCreated, 
+  onCanvasCreated,
+  onCanvasDeleted,
   creativeIdeas = [], 
   isActive = true,
   pendingImageToAdd,
@@ -369,6 +372,34 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   const [dragStart, setDragStart] = useState<Vec2>({ x: 0, y: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false); // 空格键状态，用于拖拽画布
   const [isPanMode, setIsPanMode] = useState(false); // 平移模式开关
+
+  // 右侧创意库浮动面板状态
+  const [isCreativeLibraryCollapsed, setIsCreativeLibraryCollapsed] = useState(() => {
+    try { return localStorage.getItem('canvas_creative_library_collapsed') === 'true'; } catch { return false; }
+  });
+  const [creativeLibrarySidebarWidth, setCreativeLibrarySidebarWidth] = useState(() => {
+    try { return parseInt(localStorage.getItem('canvas_creative_library_width') || '280') || 280; } catch { return 280; }
+  });
+  const [libraryFilter, setLibraryFilter] = useState<'all' | 'bp' | 'workflow' | 'favorite'>('all');
+  const [canvasLibraryHeight, setCanvasLibraryHeight] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('canvas_creative_library_height') || '0') || 0; } catch { return 0; } // 0 = 自动全高
+  });
+  // 浮动面板位置和锁定（展开态）
+  const [canvasLibraryPos, setCanvasLibraryPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('canvas_library_float_pos'); return s ? JSON.parse(s) : { x: -1, y: 12 }; } catch { return { x: -1, y: 12 }; }
+  });
+  const [canvasLibraryLocked, setCanvasLibraryLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('canvas_library_float_locked') === 'true'; } catch { return false; }
+  });
+  // 浮动图标位置和锁定（收起态）
+  const [canvasLibraryIconPos, setCanvasLibraryIconPos] = useState<{ x: number; y: number }>(() => {
+    try { const s = localStorage.getItem('canvas_library_icon_pos'); return s ? JSON.parse(s) : { x: -1, y: -1 }; } catch { return { x: -1, y: -1 }; }
+  });
+  const [canvasLibraryIconLocked, setCanvasLibraryIconLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem('canvas_library_icon_locked') === 'true'; } catch { return false; }
+  });
+  // 拖拽 ref
+  const canvasLibDragRef = useRef<{ target: 'panel' | 'icon'; startMouse: { x: number; y: number }; startPos: { x: number; y: number } } | null>(null);
 
   // ComfyUI 工作流列表（供画布节点选择，与 ComfyUI Tab 配置同步）
   const [comfyuiWorkflows, setComfyuiWorkflows] = useState<ComfyUIWorkflowConfig[]>([]);
@@ -467,6 +498,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   // API Settings Modal
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [apiConfigured, setApiConfigured] = useState(false);
+
+  // ImageGenPanel - 浮动图片生成面板
+  const [imageGenPanelNodeId, setImageGenPanelNodeId] = useState<string | null>(null);
 
   // 画布主题与全局主题同步（使用 ThemeContext，不再单独维护）
   const { themeName, setTheme } = useTheme();
@@ -862,6 +896,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       if (result.success) {
         console.log('[删除画布] ✅ 后端删除成功');
         
+        // 通知外层将桌面文件夹标记为已归档
+        if (onCanvasDeleted) {
+          onCanvasDeleted(canvasId);
+        }
+        
         // 刷新列表
         const updatedList = await loadCanvasList();
         console.log('[删除画布] 删除后列表长度:', updatedList.length);
@@ -893,7 +932,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     } catch (e) {
       console.error('[删除画布] ❌ 删除失败:', e);
     }
-  }, [currentCanvasId, canvasList, loadCanvasList, createNewCanvas, loadCanvas]);
+  }, [currentCanvasId, canvasList, loadCanvasList, createNewCanvas, loadCanvas, onCanvasDeleted]);
 
   // 重命名画布（同步重命名文件夹）
   const renameCanvas = useCallback(async (newName: string) => {
@@ -1093,6 +1132,169 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       saveRef.current = handleManualSave;
     }
   }, [saveRef, handleManualSave]);
+
+  // 持久化创意库浮动面板状态
+  useEffect(() => { try { localStorage.setItem('canvas_creative_library_collapsed', String(isCreativeLibraryCollapsed)); } catch {} }, [isCreativeLibraryCollapsed]);
+  useEffect(() => { try { localStorage.setItem('canvas_creative_library_width', String(creativeLibrarySidebarWidth)); } catch {} }, [creativeLibrarySidebarWidth]);
+  useEffect(() => { try { localStorage.setItem('canvas_creative_library_height', String(canvasLibraryHeight)); } catch {} }, [canvasLibraryHeight]);
+  useEffect(() => { try { localStorage.setItem('canvas_library_float_pos', JSON.stringify(canvasLibraryPos)); } catch {} }, [canvasLibraryPos]);
+  useEffect(() => { try { localStorage.setItem('canvas_library_float_locked', String(canvasLibraryLocked)); } catch {} }, [canvasLibraryLocked]);
+  useEffect(() => { try { localStorage.setItem('canvas_library_icon_pos', JSON.stringify(canvasLibraryIconPos)); } catch {} }, [canvasLibraryIconPos]);
+  useEffect(() => { try { localStorage.setItem('canvas_library_icon_locked', String(canvasLibraryIconLocked)); } catch {} }, [canvasLibraryIconLocked]);
+
+  // 浮动面板拖拽逻辑
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!canvasLibDragRef.current) return;
+      const dx = e.clientX - canvasLibDragRef.current.startMouse.x;
+      const dy = e.clientY - canvasLibDragRef.current.startMouse.y;
+      const newX = Math.max(0, Math.min(window.innerWidth - 60, canvasLibDragRef.current.startPos.x + dx));
+      const newY = Math.max(0, Math.min(window.innerHeight - 40, canvasLibDragRef.current.startPos.y + dy));
+      if (canvasLibDragRef.current.target === 'panel') setCanvasLibraryPos({ x: newX, y: newY });
+      else setCanvasLibraryIconPos({ x: newX, y: newY });
+    };
+    const handleMouseUp = () => { canvasLibDragRef.current = null; };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
+  // 浮动面板边缘拖拽调整大小
+  const canvasLibResizeRef = useRef<{ edge: 'left' | 'bottom' | 'bottom-left'; startMouse: { x: number; y: number }; startSize: { w: number; h: number }; startPos: { x: number; y: number } } | null>(null);
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!canvasLibResizeRef.current) return;
+      const { edge, startMouse, startSize, startPos } = canvasLibResizeRef.current;
+      const dx = e.clientX - startMouse.x;
+      const dy = e.clientY - startMouse.y;
+      if (edge === 'left' || edge === 'bottom-left') {
+        const newW = Math.max(200, Math.min(500, startSize.w - dx));
+        setCreativeLibrarySidebarWidth(newW);
+        setCanvasLibraryPos(prev => ({ ...prev, x: startPos.x + dx }));
+      }
+      if (edge === 'bottom' || edge === 'bottom-left') {
+        const newH = Math.max(200, Math.min(window.innerHeight - 20, startSize.h + dy));
+        setCanvasLibraryHeight(newH);
+      }
+    };
+    const handleMouseUp = () => { canvasLibResizeRef.current = null; document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => { document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
+  // 开始拖拽画布创意库
+  const startCanvasLibDrag = useCallback((target: 'panel' | 'icon', e: React.MouseEvent, el: HTMLElement) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = el.getBoundingClientRect();
+    canvasLibDragRef.current = { target, startMouse: { x: e.clientX, y: e.clientY }, startPos: { x: rect.left, y: rect.top } };
+    if (target === 'panel') setCanvasLibraryPos({ x: rect.left, y: rect.top });
+    else setCanvasLibraryIconPos({ x: rect.left, y: rect.top });
+  }, []);
+
+  // 辅助：计算浮动位置 style（x=-1 用 right，y=-1 用 bottom）
+  const getCanvasFloatStyle = useCallback((pos: { x: number; y: number }): React.CSSProperties => {
+    const s: React.CSSProperties = { position: 'fixed', zIndex: 90 };
+    if (pos.x === -1) s.right = 12; else s.left = pos.x;
+    if (pos.y === -1) s.bottom = 12; else s.top = pos.y;
+    return s;
+  }, []);
+
+  // 应用创意库到画布（从右侧创意库面板调用）
+  const handleApplyCreativeIdea = useCallback((idea: CreativeIdea) => {
+    const baseX = -canvasOffset.x / scale + 200;
+    const baseY = -canvasOffset.y / scale + 100;
+    
+    setHasUnsavedChanges(true);
+    
+    if (idea.isWorkflow && idea.workflowNodes && idea.workflowConnections) {
+      const offsetX = canvasOffset.x + 200;
+      const offsetY = canvasOffset.y + 100;
+      const newNodes = idea.workflowNodes.map(n => ({
+        ...n,
+        id: `${n.id}_${Date.now()}`,
+        x: n.x + offsetX,
+        y: n.y + offsetY,
+      }));
+      const idMapping = new Map(idea.workflowNodes.map((n, i) => [n.id, newNodes[i].id]));
+      const newConns = idea.workflowConnections.map(c => ({
+        ...c,
+        id: `${c.id}_${Date.now()}`,
+        fromNode: idMapping.get(c.fromNode) || c.fromNode,
+        toNode: idMapping.get(c.toNode) || c.toNode,
+      }));
+      setNodes(prev => [...prev, ...newNodes] as CanvasNode[]);
+      setConnections(prev => [...prev, ...newConns]);
+    } else if (idea.isBP && idea.bpFields) {
+      const bpNodeId = `bp_${Date.now()}`;
+      const bpNode: CanvasNode = {
+        id: bpNodeId,
+        type: 'bp' as NodeType,
+        title: idea.title,
+        content: '',
+        x: baseX,
+        y: baseY,
+        width: 320,
+        height: 300,
+        data: {
+          bpTemplate: {
+            id: idea.id,
+            title: idea.title,
+            prompt: idea.prompt,
+            bpFields: idea.bpFields,
+            imageUrl: idea.imageUrl,
+          },
+          bpInputs: {},
+          settings: {
+            aspectRatio: idea.suggestedAspectRatio || '1:1',
+            resolution: idea.suggestedResolution || '2K',
+          },
+        },
+      };
+      setNodes(prev => [...prev, bpNode]);
+    } else {
+      const ideaId = `idea_${Date.now()}`;
+      const ideaNode: CanvasNode = {
+        id: ideaId,
+        type: 'idea' as NodeType,
+        title: idea.title,
+        content: idea.prompt,
+        x: baseX,
+        y: baseY,
+        width: 280,
+        height: 280,
+        data: {
+          settings: {
+            aspectRatio: idea.suggestedAspectRatio || '1:1',
+            resolution: idea.suggestedResolution || '2K',
+          },
+        },
+      };
+      setNodes(prev => [...prev, ideaNode]);
+    }
+  }, [canvasOffset, scale]);
+
+  // 更新节点 settings（从 ImageGenPanel 调用）
+  const handleUpdateNodeSettings = useCallback((nodeId: string, settings: { aspectRatio?: string; resolution?: string }) => {
+    setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, data: { ...n.data, settings } } : n));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // 更新节点 prompt（从 ImageGenPanel 调用）
+  const handleUpdateNodePrompt = useCallback((nodeId: string, prompt: string) => {
+    setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, data: { ...n.data, prompt } } : n));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // 计算 ImageGenPanel 在屏幕上的位置（节点右侧）
+  const getImageGenPanelPosition = useCallback((nodeId: string) => {
+    const node = nodesRef.current.find(n => n.id === nodeId);
+    if (!node) return { x: 200, y: 200 };
+    const screenX = (node.x + (node.width || 300)) * scale + canvasOffset.x + 16;
+    const screenY = node.y * scale + canvasOffset.y;
+    return { x: screenX, y: screenY };
+  }, [scale, canvasOffset]);
 
   const handleResetView = () => {
     setCanvasOffset({ x: 0, y: 0 });
@@ -1404,6 +1606,10 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       }
 
       const baseData = data || {};
+      // 为新 image 节点设置默认 settings（比例/分辨率）
+      if (type === 'image' && !(baseData as any).settings) {
+          (baseData as any).settings = { aspectRatio: 'Auto', resolution: '2K' };
+      }
       if (type === 'comfyui' && baseData.comfyBaseUrl == null) {
           const cfg = getComfyUIConfig();
           (baseData as Record<string, unknown>).comfyBaseUrl = cfg.baseUrl || 'http://127.0.0.1:8188';
@@ -2677,7 +2883,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               const combinedPrompt = inputTexts || upstreamPrompt || nodePrompt;
               
               // 合并设置：自身 > 上游节点设置 > 默认
-              const effectiveSettings = node.data?.settings || upstreamSettings || {};
+              const rawSettings = node.data?.settings || upstreamSettings || {};
+              // 标准化 'Auto' -> 'AUTO'
+              const effectiveSettings = {
+                ...rawSettings,
+                aspectRatio: rawSettings.aspectRatio === 'Auto' ? 'AUTO' : rawSettings.aspectRatio,
+              };
               
               // 获取图片：优先用上游输入，其次用节点自身的图片
               let imageSource: string[] = [];
@@ -4465,6 +4676,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
              // Just Left Click = Deselect only (no pan)
              setSelectedNodeIds(new Set());
              setSelectedConnectionId(null);
+             setImageGenPanelNodeId(null);
           }
       } else if (e.button === 1) {
           // Middle click pan
@@ -4638,11 +4850,20 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       if (e.button !== 0) return; // Only left click
       e.stopPropagation();
       
+      const isMulti = e.shiftKey;
       const newSelection = new Set(selectedNodeIds);
       if (!newSelection.has(id)) {
-          if (!e.shiftKey) newSelection.clear();
+          if (!isMulti) newSelection.clear();
           newSelection.add(id);
           setSelectedNodeIds(newSelection);
+      }
+      
+      // 选中 image 节点时打开浮动生成面板
+      const selectedNode = nodesRef.current.find(n => n.id === id);
+      if (selectedNode?.type === 'image' && !isMulti && newSelection.size === 1) {
+          setImageGenPanelNodeId(id);
+      } else {
+          setImageGenPanelNodeId(null);
       }
       
       setDraggingNodeId(id);
@@ -5085,96 +5306,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           onLoadCanvas={loadCanvas}
           onDeleteCanvas={deleteCanvasById}
           onRenameCanvas={renameCanvas}
-          creativeIdeas={creativeIdeas}
           onManualSave={handleManualSave}
           autoSaveEnabled={autoSaveEnabled}
           hasUnsavedChanges={hasUnsavedChanges}
           canvasTheme={themeName}
           onToggleTheme={() => setTheme(themeName === 'light' ? 'dark' : 'light')}
-          onApplyCreativeIdea={(idea) => {
-            // 应用创意库到画布
-            const baseX = -canvasOffset.x / scale + 200;
-            const baseY = -canvasOffset.y / scale + 100;
-            
-            setHasUnsavedChanges(true); // 标记未保存
-            
-            if (idea.isWorkflow && idea.workflowNodes && idea.workflowConnections) {
-              // 工作流类型：添加整个工作流节点
-              const offsetX = canvasOffset.x + 200;
-              const offsetY = canvasOffset.y + 100;
-              const newNodes = idea.workflowNodes.map(n => ({
-                ...n,
-                id: `${n.id}_${Date.now()}`,
-                x: n.x + offsetX,
-                y: n.y + offsetY,
-              }));
-              const idMapping = new Map(idea.workflowNodes.map((n, i) => [n.id, newNodes[i].id]));
-              const newConns = idea.workflowConnections.map(c => ({
-                ...c,
-                id: `${c.id}_${Date.now()}`,
-                fromNode: idMapping.get(c.fromNode) || c.fromNode,
-                toNode: idMapping.get(c.toNode) || c.toNode,
-              }));
-              setNodes(prev => [...prev, ...newNodes] as CanvasNode[]);
-              setConnections(prev => [...prev, ...newConns]);
-            } else if (idea.isBP && idea.bpFields) {
-              // BP模式：创建单个BP节点（内置智能体+模板，直接输出图片）
-              const bpNodeId = `bp_${Date.now()}`;
-              
-              // BP节点：包含输入字段和模板，执行后直接显示图片
-              const bpNode: CanvasNode = {
-                id: bpNodeId,
-                type: 'bp' as NodeType,
-                title: idea.title,
-                content: '', // 执行后存放图片
-                x: baseX,
-                y: baseY,
-                width: 320,
-                height: 300,
-                data: {
-                  bpTemplate: {
-                    id: idea.id,
-                    title: idea.title,
-                    prompt: idea.prompt,
-                    bpFields: idea.bpFields,
-                    imageUrl: idea.imageUrl,
-                  },
-                  bpInputs: {}, // 用户输入值
-                  settings: {
-                    aspectRatio: idea.suggestedAspectRatio || '1:1',
-                    resolution: idea.suggestedResolution || '2K',
-                  },
-                },
-              };
-              
-              setNodes(prev => [...prev, bpNode]);
-              // 不创建结果节点，BP节点本身就是输出
-            } else {
-              // 普通创意：只创建创意节点，不带图像节点（对齐BP模式）
-              const ideaId = `idea_${Date.now()}`;
-              
-              // Idea节点：包含提示词和设置
-              const ideaNode: CanvasNode = {
-                id: ideaId,
-                type: 'idea' as NodeType,
-                title: idea.title,
-                content: idea.prompt,
-                x: baseX,
-                y: baseY,
-                width: 280,
-                height: 280,
-                data: {
-                  settings: {
-                    aspectRatio: idea.suggestedAspectRatio || '1:1',
-                    resolution: idea.suggestedResolution || '2K',
-                  },
-                },
-              };
-              
-              setNodes(prev => [...prev, ideaNode]);
-              // 不创建Image节点，不创建连接
-            }
-          }}
       />
       
       {/* 画布名称标识 - 独立模块 */}
@@ -5184,34 +5320,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
         hasUnsavedChanges={hasUnsavedChanges}
       />
       
-      {/* 平移模式切换按钮 */}
-      <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-        <button
-          onClick={() => setIsPanMode(!isPanMode)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            isPanMode 
-              ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg' 
-              : 'bg-gray-700/50 hover:bg-gray-600/70 text-gray-300'
-          }`}
-          style={{
-            backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255,255,255,0.1)',
-          }}
-          title={isPanMode ? '退出平移模式（左键拖拽移动画布）' : '进入平移模式（左键拖拽移动画布）'}
-        >
-          {isPanMode ? '平移中' : '平移'}
-        </button>
-        
-        {/* 状态提示 */}
-        {isPanMode && (
-          <div 
-            className="px-2 py-1 rounded text-xs text-blue-300 bg-blue-900/30 backdrop-blur-sm"
-            style={{ border: '1px solid rgba(59, 130, 246, 0.3)' }}
-          >
-            左键拖拽移动画布
-          </div>
-        )}
-      </div>
+      {/* 平移模式按钮已移除 - 可通过鼠标中键或空格+左键拖拽来平移画布 */}
       
       <div
         ref={containerRef}
@@ -5571,6 +5680,13 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                         const newSet = new Set(multi ? selectedNodeIds : []);
                         newSet.add(id);
                         setSelectedNodeIds(newSet);
+                        // 选中 image 节点时打开浮动生成面板
+                        const selectedNode = nodesRef.current.find(n => n.id === id);
+                        if (selectedNode?.type === 'image' && !multi) {
+                            setImageGenPanelNodeId(id);
+                        } else {
+                            setImageGenPanelNodeId(null);
+                        }
                     }}
                     onDragStart={handleNodeDragStart}
                     onUpdate={updateNode}
@@ -5691,6 +5807,248 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
             />
         )}
       </div>
+
+      {/* ImageGenPanel - 图片节点浮动生成面板 */}
+      {imageGenPanelNodeId && (() => {
+        const panelNode = nodes.find(n => n.id === imageGenPanelNodeId);
+        if (!panelNode || panelNode.type !== 'image') return null;
+        const pos = getImageGenPanelPosition(imageGenPanelNodeId);
+        return (
+          <ImageGenPanel
+            node={panelNode}
+            position={pos}
+            isLightCanvas={isLightCanvas}
+            onUpdateSettings={handleUpdateNodeSettings}
+            onUpdatePrompt={handleUpdateNodePrompt}
+            onExecute={(id) => handleExecuteNode(id)}
+            onClose={() => setImageGenPanelNodeId(null)}
+            isRunning={panelNode.status === 'running'}
+          />
+        );
+      })()}
+
+      {/* 右侧创意库 - 浮动面板，可拖拽/可锁定 */}
+      {(() => {
+        const filteredIdeas = (creativeIdeas || []).filter(idea => {
+          if (libraryFilter === 'all') return true;
+          if (libraryFilter === 'favorite') return idea.isFavorite;
+          if (libraryFilter === 'bp') return idea.isBP;
+          if (libraryFilter === 'workflow') return idea.isWorkflow;
+          return true;
+        });
+
+        if (isCreativeLibraryCollapsed) {
+          /* 收起态 - 浮动小图标 */
+          return (
+            <div
+              className="select-none flex items-center gap-1 rounded-2xl border shadow-lg"
+              style={{
+                ...getCanvasFloatStyle(canvasLibraryIconPos),
+                background: isLightCanvas ? 'rgba(255,255,255,0.9)' : 'rgba(20,20,25,0.85)',
+                borderColor: isLightCanvas ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+                backdropFilter: 'blur(16px)',
+                padding: '4px 6px',
+                pointerEvents: 'auto',
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {!canvasLibraryIconLocked && (
+                <div
+                  className="cursor-grab active:cursor-grabbing flex items-center"
+                  style={{ color: isLightCanvas ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.25)' }}
+                  onMouseDown={(e) => { const el = e.currentTarget.parentElement; if (el) startCanvasLibDrag('icon', e, el); }}
+                >
+                  <Icons.GripVertical size={10} />
+                </div>
+              )}
+              <button
+                onClick={() => setIsCreativeLibraryCollapsed(false)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                style={{ color: '#60a5fa' }}
+                title="展开创意库"
+              >
+                <Icons.Layers size={16} />
+              </button>
+              <button
+                onClick={() => setCanvasLibraryIconLocked(!canvasLibraryIconLocked)}
+                className="w-4 h-4 rounded flex items-center justify-center transition-all hover:scale-110"
+                style={{ color: canvasLibraryIconLocked ? '#60a5fa' : (isLightCanvas ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)') }}
+                title={canvasLibraryIconLocked ? '点击解锁' : '点击锁定'}
+              >
+                {canvasLibraryIconLocked ? <Icons.Lock size={8} /> : <Icons.Unlock size={8} />}
+              </button>
+            </div>
+          );
+        }
+
+        /* 展开态 - 浮动面板，可拖拽/可拉伸调整大小 */
+        return (
+          <div
+            data-canvas-lib-panel
+            className="select-none flex flex-col rounded-2xl border shadow-2xl"
+            style={{
+              ...getCanvasFloatStyle(canvasLibraryPos),
+              width: creativeLibrarySidebarWidth,
+              height: canvasLibraryHeight > 0 ? canvasLibraryHeight : 'calc(100vh - 24px)',
+              maxHeight: 'calc(100vh - 10px)',
+              background: isLightCanvas ? 'rgba(255,255,255,0.97)' : 'rgba(20,20,25,0.95)',
+              borderColor: isLightCanvas ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+              backdropFilter: 'blur(20px)',
+              pointerEvents: 'auto',
+              overflow: 'hidden',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {/* 左侧边缘拖拽调宽 */}
+            <div
+              className="absolute left-0 top-2 bottom-2 w-1.5 cursor-ew-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-l transition-colors group-hover:${isLightCanvas ? 'bg-blue-400/40' : 'bg-blue-500/40'}`} />
+            </div>
+            {/* 底部边缘拖拽调高 */}
+            <div
+              className="absolute bottom-0 left-2 right-2 h-1.5 cursor-ns-resize z-10 group"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'ns-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'bottom', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            >
+              <div className={`absolute inset-0 rounded-b transition-colors group-hover:${isLightCanvas ? 'bg-blue-400/40' : 'bg-blue-500/40'}`} />
+            </div>
+            {/* 左下角同时调宽+调高 */}
+            <div
+              className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize z-20"
+              onMouseDown={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement;
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                document.body.style.cursor = 'nesw-resize'; document.body.style.userSelect = 'none';
+                canvasLibResizeRef.current = { edge: 'bottom-left', startMouse: { x: e.clientX, y: e.clientY }, startSize: { w: creativeLibrarySidebarWidth, h: canvasLibraryHeight || rect.height }, startPos: { x: rect.left, y: rect.top } };
+              }}
+            />
+
+            {/* 拖拽栏 + 控制按钮 */}
+            <div className={`flex items-center gap-1 px-2 py-1.5 flex-shrink-0 border-b ${isLightCanvas ? 'border-gray-200' : 'border-white/10'}`}>
+              {!canvasLibraryLocked && (
+                <div
+                  className="cursor-grab active:cursor-grabbing flex items-center"
+                  style={{ color: isLightCanvas ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.25)' }}
+                  onMouseDown={(e) => { const el = e.currentTarget.closest('[data-canvas-lib-panel]') as HTMLElement; if (el) startCanvasLibDrag('panel', e, el); }}
+                >
+                  <Icons.GripVertical size={12} />
+                </div>
+              )}
+              <Icons.Layers size={14} className="text-blue-400 flex-shrink-0" />
+              <span className={`text-xs font-bold flex-1 min-w-0 truncate ${isLightCanvas ? 'text-gray-900' : 'text-white'}`}>创意库</span>
+              <span className={`text-[10px] flex-shrink-0 ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>({(creativeIdeas || []).length})</span>
+              {/* 锁定 */}
+              <button
+                onClick={() => setCanvasLibraryLocked(!canvasLibraryLocked)}
+                className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110"
+                style={{ color: canvasLibraryLocked ? '#60a5fa' : (isLightCanvas ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.25)') }}
+                title={canvasLibraryLocked ? '点击解锁（可拖拽）' : '点击锁定（防止误拖动）'}
+              >
+                {canvasLibraryLocked ? <Icons.Lock size={10} /> : <Icons.Unlock size={10} />}
+              </button>
+              {/* 收起 */}
+              <button
+                onClick={() => setIsCreativeLibraryCollapsed(true)}
+                className={`w-5 h-5 rounded flex items-center justify-center transition-all ${isLightCanvas ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100' : 'text-zinc-500 hover:text-white hover:bg-white/10'}`}
+                title="收起创意库"
+              >
+                <Icons.Close size={10} />
+              </button>
+            </div>
+
+            {/* 筛选 */}
+            <div className={`px-3 py-2 flex gap-1 flex-wrap border-b flex-shrink-0 ${isLightCanvas ? 'border-gray-100' : 'border-white/5'}`}>
+              {[
+                { key: 'all', label: '全部' },
+                { key: 'favorite', label: '收藏' },
+                { key: 'bp', label: 'BP' },
+                { key: 'workflow', label: '工作流' },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setLibraryFilter(key as typeof libraryFilter)}
+                  className={`px-2 py-1 text-[10px] rounded-lg transition-all ${
+                    libraryFilter === key
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                      : isLightCanvas
+                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-transparent'
+                        : 'bg-white/5 text-zinc-400 hover:bg-white/10 border border-transparent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* 创意列表 */}
+            <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1.5" onWheel={(e) => e.stopPropagation()}>
+              {filteredIdeas.length === 0 ? (
+                <div className={`text-center py-10 text-xs ${isLightCanvas ? 'text-gray-400' : 'text-zinc-500'}`}>
+                  暂无创意
+                </div>
+              ) : (
+                filteredIdeas.map((idea) => (
+                  <button
+                    key={idea.id}
+                    onClick={() => handleApplyCreativeIdea(idea)}
+                    className={`w-full text-left p-2 rounded-lg border transition-all ${
+                      idea.isWorkflow
+                        ? 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20'
+                        : idea.isBP
+                        ? 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20'
+                        : isLightCanvas
+                          ? 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                          : 'bg-white/5 border-white/5 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className="flex gap-2">
+                      {idea.imageUrl && (
+                        <div className="w-9 h-9 flex-shrink-0 rounded overflow-hidden bg-black/20">
+                          <img src={idea.imageUrl} alt="" className="w-full h-full object-cover" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className={`text-[10px] font-bold truncate ${isLightCanvas ? 'text-gray-900' : 'text-white'}`}>
+                            {idea.isFavorite && '* '}
+                            {idea.title}
+                          </span>
+                          {idea.isWorkflow && <span className="text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded flex-shrink-0">WF</span>}
+                          {idea.isBP && <span className="text-[8px] bg-blue-500/30 text-blue-300 px-1 rounded flex-shrink-0">BP</span>}
+                        </div>
+                        <div className={`text-[9px] truncate ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
+                          {idea.isBP && idea.bpFields
+                            ? `输入: ${idea.bpFields.map(f => f.label).join(', ')}`
+                            : idea.isWorkflow && idea.workflowNodes
+                            ? `${idea.workflowNodes.length} 个节点`
+                            : idea.prompt.slice(0, 40) + (idea.prompt.length > 40 ? '...' : '')}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Context Menu */}
       {contextMenu && (

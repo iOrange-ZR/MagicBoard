@@ -67,6 +67,8 @@ interface DesktopProps {
   isActive?: boolean;
   // 添加图片到画布
   onAddToCanvas?: (imageUrl: string, imageName?: string) => void;
+  // 受保护的文件夹ID集合（关联活跃画布，不可删除）
+  protectedFolderIds?: Set<string>;
 }
 
 const GRID_SIZE = 100; // 网格大小
@@ -114,6 +116,7 @@ export const Desktop: React.FC<DesktopProps> = ({
   onCreateCreativeIdea,
   isActive = true,
   onAddToCanvas,
+  protectedFolderIds,
 }) => {
   const { theme, themeName } = useTheme();
   const isLight = themeName === 'light';
@@ -1079,8 +1082,38 @@ export const Desktop: React.FC<DesktopProps> = ({
     setContextMenu(null);
   };
 
-  // 删除选中项目
+  // 删除选中项目（受保护的画布文件夹不可删除）
   const handleDeleteSelected = () => {
+    // 检查是否包含受保护的画布文件夹
+    const protectedSelected = selectedIds.filter(id => protectedFolderIds?.has(id));
+    if (protectedSelected.length > 0) {
+      const protectedNames = protectedSelected.map(id => {
+        const folder = items.find(i => i.id === id);
+        return folder ? `「${folder.name}」` : id;
+      }).join('、');
+      alert(`${protectedNames} 关联了活跃画布，无法删除。\n请先删除对应画布后再删除文件夹。`);
+      // 仅删除非受保护的项目
+      const deletableIds = selectedIds.filter(id => !protectedFolderIds?.has(id));
+      if (deletableIds.length === 0) {
+        setContextMenu(null);
+        return;
+      }
+      const updatedItems = items.filter(item => !deletableIds.includes(item.id));
+      const cleanedItems = updatedItems.map(item => {
+        if (item.type === 'folder') {
+          return {
+            ...item,
+            itemIds: (item as DesktopFolderItem).itemIds.filter(id => !deletableIds.includes(id)),
+          };
+        }
+        return item;
+      });
+      onItemsChange(cleanedItems);
+      onSelectionChange([]);
+      setContextMenu(null);
+      return;
+    }
+    
     const updatedItems = items.filter(item => !selectedIds.includes(item.id));
     // 同时从文件夹中移除引用
     const cleanedItems = updatedItems.map(item => {
@@ -1735,9 +1768,23 @@ export const Desktop: React.FC<DesktopProps> = ({
     
     // 一次性更新所有项目
     if (newItemsToAdd.length > 0) {
-      onItemsChange([...items, ...newItemsToAdd]);
+      if (openFolderId) {
+        // 在文件夹内拖入文件：将新项目 ID 添加到当前文件夹的 itemIds 中
+        const newItemIds = newItemsToAdd.map(item => item.id);
+        onItemsChange(
+          [...items, ...newItemsToAdd].map(item => {
+            if (item.id === openFolderId && item.type === 'folder') {
+              const folder = item as DesktopFolderItem;
+              return { ...folder, itemIds: [...folder.itemIds, ...newItemIds], updatedAt: Date.now() };
+            }
+            return item;
+          })
+        );
+      } else {
+        onItemsChange([...items, ...newItemsToAdd]);
+      }
     }
-  }, [items, onItemsChange, maxX, maxY, gridSize]);
+  }, [items, onItemsChange, maxX, maxY, gridSize, openFolderId]);
   
   // 从FIleSystemFileEntry获取File对象
   const getFileFromEntry = (entry: FileSystemFileEntry): Promise<File | null> => {
@@ -2462,8 +2509,41 @@ export const Desktop: React.FC<DesktopProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <FolderIcon className="w-10 h-10 text-blue-500/80" />
+                <div className="w-full h-full flex items-center justify-center relative">
+                  {/* 画布文件夹 / 已归档文件夹 / 普通文件夹 */}
+                  {(() => {
+                    const folder = item as DesktopFolderItem;
+                    const isProtected = protectedFolderIds?.has(item.id);
+                    const isArchived = folder.isArchived;
+                    const folderColor = folder.color || (isArchived ? '#6b7280' : '#3b82f6');
+                    return (
+                      <>
+                        <FolderIcon className="w-10 h-10" style={{ color: `${folderColor}cc`, opacity: isArchived ? 0.5 : 1 }} />
+                        {/* 画布关联角标 */}
+                        {isProtected && (
+                          <div 
+                            className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-0.5 py-0.5 rounded-b-xl"
+                            style={{ background: 'linear-gradient(to top, rgba(59,130,246,0.35), transparent)' }}
+                          >
+                            <svg className="w-2.5 h-2.5 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            <span className="text-[8px] text-blue-300 font-semibold">画布</span>
+                          </div>
+                        )}
+                        {/* 已归档角标 */}
+                        {isArchived && (
+                          <div 
+                            className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-0.5 py-0.5 rounded-b-xl"
+                            style={{ background: 'linear-gradient(to top, rgba(107,114,128,0.4), transparent)' }}
+                          >
+                            <PackageIcon className="w-2.5 h-2.5 text-gray-400" />
+                            <span className="text-[8px] text-gray-400 font-semibold">已归档</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               
