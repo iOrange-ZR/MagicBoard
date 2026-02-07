@@ -14,6 +14,37 @@ const COMFYUI_CONFIG_KEY = 'comfyui';
 const COMFYUI_CONFIG_FILE = config.SETTINGS_FILE;
 JsonStorage.init(config.COMFYUI_WORKFLOWS_FILE, []);
 
+/**
+ * 加载工作流列表。兼容两种格式：
+ * 1. 数组 [ { id, title, workflowApiJson, inputSlots, updatedAt }, ... ]（正常存储格式）
+ * 2. 导出包 { version, addresses, workflows: [ { title, workflowApiJson, inputSlots } ] }（用户复制替换的导出 JSON）
+ */
+function loadWorkflowsList() {
+  const raw = JsonStorage.load(config.COMFYUI_WORKFLOWS_FILE, []);
+  if (Array.isArray(raw)) {
+    return raw.map((w) => ({
+      id: w.id || 'wf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      title: w.title || '',
+      workflowApiJson: w.workflowApiJson || '',
+      inputSlots: Array.isArray(w.inputSlots) ? w.inputSlots : [],
+      updatedAt: typeof w.updatedAt === 'number' ? w.updatedAt : Date.now(),
+    }));
+  }
+  if (raw && typeof raw === 'object' && Array.isArray(raw.workflows)) {
+    const list = raw.workflows.map((w, i) => ({
+      id: w.id || 'wf_import_' + Date.now() + '_' + i,
+      title: w.title || '',
+      workflowApiJson: w.workflowApiJson || '',
+      inputSlots: Array.isArray(w.inputSlots) ? w.inputSlots : [],
+      updatedAt: Date.now(),
+    }));
+    JsonStorage.save(config.COMFYUI_WORKFLOWS_FILE, list);
+    console.log('[ComfyUI] 已从导出包格式转换工作流文件，共 ' + list.length + ' 条');
+    return list;
+  }
+  return [];
+}
+
 function getComfyUIBaseUrl(reqBodyBaseUrl) {
   if (reqBodyBaseUrl && typeof reqBodyBaseUrl === 'string' && reqBodyBaseUrl.trim()) {
     return reqBodyBaseUrl.replace(/\/+$/, '');
@@ -235,7 +266,7 @@ router.post('/config', (req, res) => {
  */
 router.get('/workflows', (req, res) => {
   try {
-    const list = JsonStorage.load(config.COMFYUI_WORKFLOWS_FILE, []);
+    const list = loadWorkflowsList();
     res.json({ success: true, data: list });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -252,7 +283,7 @@ router.post('/workflows', (req, res) => {
     if (!title || !workflowApiJson) {
       return res.status(400).json({ success: false, error: '缺少 title 或 workflowApiJson' });
     }
-    const list = JsonStorage.load(config.COMFYUI_WORKFLOWS_FILE, []);
+    const list = loadWorkflowsList();
     const slotList = Array.isArray(inputSlots) ? inputSlots : [];
     const workflow = {
       id: id && list.some(w => w.id === id) ? id : 'wf_' + Date.now(),
@@ -280,7 +311,7 @@ router.post('/workflows', (req, res) => {
 router.delete('/workflows/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const list = JsonStorage.load(config.COMFYUI_WORKFLOWS_FILE, []);
+    const list = loadWorkflowsList();
     const next = list.filter(w => w.id !== id);
     if (next.length === list.length) {
       return res.status(404).json({ success: false, error: '工作流不存在' });

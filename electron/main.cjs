@@ -829,11 +829,35 @@ function killProcessOnPort(port) {
       });
       
       Promise.all(killPromises).then(() => {
-        // 等待一下确保端口释放
-        setTimeout(resolve, 500);
+        // 多等一会确保端口释放（避免 EADDRINUSE）
+        setTimeout(resolve, 1200);
       });
     });
   });
+}
+
+// 启动后端，若遇 EADDRINUSE 则重试（安装/更新后旧进程可能尚未完全释放端口）
+async function startBackendServerWithRetry() {
+  const maxAttempts = 3;
+  let lastErr = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      console.log(`端口 8765 仍被占用，第 ${attempt + 1}/${maxAttempts} 次重试...`);
+      await new Promise((r) => setTimeout(r, 2500));
+      await killProcessOnPort(CONFIG.backendPort);
+      await new Promise((r) => setTimeout(r, 1500));
+    } else {
+      await killProcessOnPort(CONFIG.backendPort);
+    }
+    try {
+      await startBackendServer();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!String(err && err.message || '').includes('EADDRINUSE')) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 // 创建启动画面
@@ -1050,17 +1074,19 @@ function startBackendServer() {
   return new Promise((resolve, reject) => {
     console.log('🚀 启动后端服务...');
 
-    // 读取自定义存储路径
+    // 读取自定义存储路径（已含规范化与旧版迁移）
     const storageConfig = loadStorageConfig();
-    const userDataPath = storageConfig.customPath || app.getPath('userData');
-    console.log('数据存储路径:', userDataPath);
-
-    // 设置环境变量
+    const userDataPath = normalizeDataPath(storageConfig.customPath || app.getPath('userData')) || app.getPath('userData');
     process.env.NODE_ENV = 'production';
     process.env.PORT = CONFIG.backendPort.toString();
     process.env.HOST = CONFIG.backendHost;
     process.env.IS_ELECTRON = 'true';
     process.env.USER_DATA_PATH = userDataPath;
+
+    const canvasListPath = path.join(userDataPath, 'data', 'canvas_list.json');
+    const isCustom = !!storageConfig.customPath;
+    console.log('数据存储路径:', userDataPath, isCustom ? '(已设置自定义)' : '(默认)');
+    console.log('画布列表文件:', canvasListPath, fs.existsSync(canvasListPath) ? '存在' : '不存在');
 
     // 计算后端路径
     let backendPath;
@@ -1074,8 +1100,7 @@ function startBackendServer() {
     console.log('resourcesPath:', process.resourcesPath);
     console.log('后端路径:', backendPath);
     
-    // 检查文件是否存在
-    const fs = require('fs');
+    // 检查文件是否存在（使用文件顶部已 require 的 fs）
     if (!fs.existsSync(backendPath)) {
       console.error('❌ 后端文件不存在:', backendPath);
       // 尝试其他可能的路径
@@ -1377,13 +1402,72 @@ function getStorageConfigPath() {
   return path.join(app.getPath('userData'), 'storage_config.json');
 }
 
-// 读取存储路径配置
+// 规范化数据目录路径（去除末尾斜杠、统一格式）
+function normalizeDataPath(p) {
+  if (!p || typeof p !== 'string') return null;
+  const normalized = path.normalize(p.trim());
+  if (normalized === '' || normalized === '.') return null;
+  return normalized.replace(/[/\\]+$/, '') || null;
+}
+
+// 尝试从“旧版”userData 目录迁移 storage_config（解决更新后 customPath 丢失）
+function tryMigrateStorageConfigFromLegacy() {
+  const currentUserData = app.getPath('userData');
+  const configPath = path.join(currentUserData, 'storage_config.json');
+  if (fs.existsSync(configPath)) return null; // 当前已有配置，无需迁移
+
+  const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+  const possibleNames = [
+    '天津美术学院AIGC Tools',
+    'cn.tafa.aigctools',
+    'tafa-aigc-tools',
+    'AIGC Tools'
+  ];
+  for (const name of possibleNames) {
+    const legacyDir = path.join(appData, name);
+    const legacyConfig = path.join(legacyDir, 'storage_config.json');
+    if (legacyDir !== currentUserData && fs.existsSync(legacyConfig)) {
+      try {
+        const data = fs.readFileSync(legacyConfig, 'utf-8');
+        const parsed = JSON.parse(data);
+        if (parsed.customPath && fs.existsSync(parsed.customPath)) {
+          fs.mkdirSync(currentUserData, { recursive: true });
+          fs.writeFileSync(configPath, data);
+          console.log('[存储] 已从旧版目录迁移 storage_config:', legacyDir, '->', currentUserData);
+          return parsed;
+        }
+      } catch (e) {
+        console.log('[存储] 迁移旧配置时出错:', e.message);
+      }
+    }
+  }
+  return null;
+}
+
+// 读取存储路径配置（含路径规范化、校验与旧版迁移）
 function loadStorageConfig() {
+  tryMigrateStorageConfigFromLegacy();
   const configPath = getStorageConfigPath();
   try {
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf-8');
-      return JSON.parse(data);
+      const config = JSON.parse(data);
+      let customPath = config.customPath ? normalizeDataPath(config.customPath) : null;
+      // 校验：自定义路径必须存在，且建议存在 data 目录（避免指向错误目录）
+      if (customPath) {
+        if (!fs.existsSync(customPath)) {
+          console.warn('[存储] 自定义路径不存在，已回退到默认:', customPath);
+          customPath = null;
+          config.customPath = null;
+          saveStorageConfig(config);
+        } else {
+          const dataDir = path.join(customPath, 'data');
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+        }
+      }
+      return { customPath };
     }
   } catch (e) {
     console.log('读取存储配置失败:', e.message);
@@ -1395,6 +1479,9 @@ function loadStorageConfig() {
 function saveStorageConfig(config) {
   const configPath = getStorageConfigPath();
   try {
+    if (config.customPath) {
+      config.customPath = normalizeDataPath(config.customPath) || config.customPath;
+    }
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     return true;
   } catch (e) {
@@ -1431,17 +1518,23 @@ ipcMain.handle('select-storage-path', async () => {
 // 设置存储路径
 ipcMain.handle('set-storage-path', (event, newPath) => {
   try {
-    // 验证路径是否有效
-    if (newPath && !fs.existsSync(newPath)) {
-      fs.mkdirSync(newPath, { recursive: true });
+    const normalized = newPath ? normalizeDataPath(newPath) : null;
+    if (normalized) {
+      if (!fs.existsSync(normalized)) {
+        fs.mkdirSync(normalized, { recursive: true });
+      }
+      const dataDir = path.join(normalized, 'data');
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
     }
-    
+
     const config = loadStorageConfig();
-    config.customPath = newPath || null;
+    config.customPath = normalized;
     const saved = saveStorageConfig(config);
-    
-    return { 
-      success: saved, 
+
+    return {
+      success: saved,
       message: saved ? '存储路径已更新，重启应用后生效' : '保存配置失败',
       needRestart: true
     };
@@ -1545,14 +1638,16 @@ app.whenReady().then(async () => {
     createSplashWindow();
     
     try {
-      // 先检查并释放端口
-      await killProcessOnPort(CONFIG.backendPort);
-      await startBackendServer();
+      await startBackendServerWithRetry();
     } catch (err) {
       console.error('❌ 后端服务启动失败:', err);
       closeSplashWindow();
       const { dialog } = require('electron');
-      dialog.showErrorBox('启动失败', `后端服务启动失败: ${err.message}`);
+      const isPortInUse = String(err && err.message || '').includes('EADDRINUSE');
+      const msg = isPortInUse
+        ? `端口 8765 已被占用（已自动重试 3 次）。请完全退出其他正在运行的「天津美术学院AIGC Tools」（含托盘），再重新打开；或重启电脑后再试。\n\n${err.message}`
+        : `后端服务启动失败: ${err.message}`;
+      dialog.showErrorBox('启动失败', msg);
       app.quit();
       return;
     }

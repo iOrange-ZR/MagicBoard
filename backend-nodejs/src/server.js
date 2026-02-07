@@ -90,6 +90,8 @@ app.use('/files/creative_images', express.static(config.CREATIVE_IMAGES_DIR)); /
 app.use('/files/canvas_images', express.static(path.join(config.BASE_DIR, 'canvas_images'))); // 画布图片
 
 // 确保目录存在并输出调试信息
+console.log('📁 数据根目录 (BASE_DIR):', config.BASE_DIR);
+console.log('📁 画布列表文件 (CANVAS_FILE):', config.CANVAS_FILE);
 console.log('📁 静态文件托管配置:');
 console.log(`   - Output: ${config.OUTPUT_DIR}`);
 console.log(`   - Input: ${config.INPUT_DIR}`);

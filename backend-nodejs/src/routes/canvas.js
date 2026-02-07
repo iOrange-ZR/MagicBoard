@@ -56,7 +56,12 @@ JsonStorage.init(config.CANVAS_FILE, []);
  */
 router.get('/', (req, res) => {
   try {
-    const canvasList = JsonStorage.load(config.CANVAS_FILE, []);
+    let canvasList = JsonStorage.load(config.CANVAS_FILE, []);
+    if (!Array.isArray(canvasList)) {
+      console.warn('[Canvas] canvas_list.json 格式异常（非数组），按空列表处理。路径:', config.CANVAS_FILE);
+      canvasList = [];
+    }
+    console.log('[Canvas] 读取画布列表:', config.CANVAS_FILE, '数量:', canvasList.length);
     // 返回列表时不包含nodes和connections详情，减少传输量
     const listWithoutDetails = canvasList.map(canvas => ({
       id: canvas.id,

@@ -1103,16 +1103,20 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     }
   }, [currentCanvasId, loadCanvasList]);
 
-  // 初始化：加载最近画布或创建新画布
+  // 初始化：加载最近画布或创建新画布（空列表时重试一次，避免后端未就绪或自定义路径未生效时误建默认画布）
   useEffect(() => {
     const initCanvas = async () => {
-      const list = await loadCanvasList();
+      let list = await loadCanvasList();
+      if (list.length === 0) {
+        await new Promise((r) => setTimeout(r, 1500));
+        list = await loadCanvasList();
+      }
       if (list.length > 0) {
         // 加载最近更新的画布
-        const sorted = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+        const sorted = [...list].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         await loadCanvas(sorted[0].id);
       } else {
-        // 创建第一个画布
+        // 确实无画布时才创建第一个
         await createNewCanvas('画布 1');
       }
       
