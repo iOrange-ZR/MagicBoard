@@ -97,7 +97,8 @@ export interface NodeData {
     imageUrl?: string; // 缩略图
   };
   bpInputs?: Record<string, string>; // 用户填写的BP输入值
-  
+  bpAgentInstructionOverrides?: Record<string, string>; // 用户临时修改的「给该 agent 的指令」（画布上点击 agent 高亮可编辑，本次执行时用此替换模板中的 instruction 再调 LLM）
+
   // RunningHub Node Specifics
   webappId?: string; // RunningHub AI应用ID
   appInfo?: {

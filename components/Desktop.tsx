@@ -1144,9 +1144,12 @@ export const Desktop: React.FC<DesktopProps> = ({
     setClipboard({ items: selectedItems, action: 'cut' });
   }, [selectedIds, items]);
 
-  // 粘贴项目 - 修正坐标转换
+  // 粘贴项目 - 粘贴到当前视图（当前文件夹 / 当前叠放 / 最外层），与新建文件夹等逻辑统一
   const handlePaste = useCallback(() => {
     if (!clipboard || clipboard.items.length === 0) return;
+    
+    const targetFolderId = openFolderId || null;
+    const targetStackId = openStackId || null;
     
     let pastePos = { x: 0, y: 0 };
     if (contextMenu && containerRef.current) {
@@ -1161,35 +1164,51 @@ export const Desktop: React.FC<DesktopProps> = ({
     
     let newItems = [...items];
     
-    // 初始化已占用位置集合（排除文件夹/叠放内的项目）
+    // 已占用位置：仅统计当前视图内的项目（在文件夹内则只看该文件夹内；在叠放内则只看该叠放内；否则看最外层）
     const occupiedPositions = new Set<string>();
-    newItems.forEach(item => {
-      const isInFolder = newItems.some(
-        other => other.type === 'folder' && (other as DesktopFolderItem).itemIds.includes(item.id)
-      );
-      const isInStack = newItems.some(
-        other => other.type === 'stack' && (other as DesktopStackItem).itemIds.includes(item.id)
-      );
-      if (!isInFolder && !isInStack) {
-        const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
-        occupiedPositions.add(posKey);
+    if (targetFolderId) {
+      const folder = newItems.find(i => i.id === targetFolderId) as DesktopFolderItem | undefined;
+      if (folder) {
+        newItems.filter(it => folder.itemIds.includes(it.id)).forEach(item => {
+          const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
+          occupiedPositions.add(posKey);
+        });
       }
-    });
+    } else if (targetStackId) {
+      const stack = newItems.find(i => i.id === targetStackId) as DesktopStackItem | undefined;
+      if (stack) {
+        newItems.filter(it => stack.itemIds.includes(it.id)).forEach(item => {
+          const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
+          occupiedPositions.add(posKey);
+        });
+      }
+    } else {
+      newItems.forEach(item => {
+        const isInFolder = newItems.some(
+          other => other.type === 'folder' && (other as DesktopFolderItem).itemIds.includes(item.id)
+        );
+        const isInStack = newItems.some(
+          other => other.type === 'stack' && (other as DesktopStackItem).itemIds.includes(item.id)
+        );
+        if (!isInFolder && !isInStack) {
+          const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
+          occupiedPositions.add(posKey);
+        }
+      });
+    }
     
     let offsetX = 0;
     let offsetY = 0;
+    const pastedNewIds: string[] = []; // 复制产生的新 id
+    const pastedMovedIds: string[] = []; // 剪切移动的 id
     
-    clipboard.items.forEach((item, index) => {
+    clipboard.items.forEach((item) => {
       const basePos = { x: pastePos.x + offsetX, y: pastePos.y + offsetY };
-      // 传入已占用位置集合，确保不会重复分配
       const freePos = findNearestFreePosition(basePos, undefined, occupiedPositions);
-      
-      // 将新分配的位置加入已占用集合
       const newPosKey = `${Math.round(freePos.x / gridSize)},${Math.round(freePos.y / gridSize)}`;
       occupiedPositions.add(newPosKey);
       
       if (clipboard.action === 'copy') {
-        // 复制：创建新项目
         const newItem: DesktopItem = {
           ...item,
           id: generateId(),
@@ -1199,13 +1218,12 @@ export const Desktop: React.FC<DesktopProps> = ({
           updatedAt: Date.now(),
         };
         newItems.push(newItem);
+        pastedNewIds.push(newItem.id);
       } else {
-        // 剪切：移动项目位置
-        newItems = newItems.map(i => 
-          i.id === item.id 
-            ? { ...i, position: freePos, updatedAt: Date.now() } 
-            : i
+        newItems = newItems.map(i =>
+          i.id === item.id ? { ...i, position: freePos, updatedAt: Date.now() } : i
         );
+        pastedMovedIds.push(item.id);
       }
       
       offsetX += gridSize;
@@ -1215,15 +1233,62 @@ export const Desktop: React.FC<DesktopProps> = ({
       }
     });
     
-    onItemsChange(newItems);
-    
-    // 剪切后清空剪贴板
-    if (clipboard.action === 'cut') {
-      setClipboard(null);
+    // 归属到当前视图：复制/剪切到当前文件夹或叠放
+    if (targetFolderId && (pastedNewIds.length > 0 || pastedMovedIds.length > 0)) {
+      const folder = newItems.find(i => i.id === targetFolderId) as DesktopFolderItem | undefined;
+      if (folder) {
+        const addIds = [...(clipboard.action === 'copy' ? pastedNewIds : pastedMovedIds)];
+        const newItemIds = [...folder.itemIds];
+        addIds.forEach(id => {
+          if (!newItemIds.includes(id)) newItemIds.push(id);
+        });
+        newItems = newItems.map(i =>
+          i.id === targetFolderId && i.type === 'folder'
+            ? { ...(i as DesktopFolderItem), itemIds: newItemIds, updatedAt: Date.now() }
+            : i
+        );
+      }
+    } else if (targetStackId && (pastedNewIds.length > 0 || pastedMovedIds.length > 0)) {
+      const stack = newItems.find(i => i.id === targetStackId) as DesktopStackItem | undefined;
+      if (stack) {
+        const addIds = [...(clipboard.action === 'copy' ? pastedNewIds : pastedMovedIds)];
+        const newItemIds = [...stack.itemIds];
+        addIds.forEach(id => {
+          if (!newItemIds.includes(id)) newItemIds.push(id);
+        });
+        newItems = newItems.map(i =>
+          i.id === targetStackId && i.type === 'stack'
+            ? { ...(i as DesktopStackItem), itemIds: newItemIds, updatedAt: Date.now() }
+            : i
+        );
+      }
     }
     
+    // 剪切时：从原所属文件夹/叠放中移除（不包含当前粘贴目标，避免从目标里又删掉）
+    if (clipboard.action === 'cut' && pastedMovedIds.length > 0) {
+      newItems = newItems.map(i => {
+        if (i.type === 'folder') {
+          if (i.id === targetFolderId) return i; // 已是目标文件夹，上面已加入
+          const folder = i as DesktopFolderItem;
+          const newItemIds = folder.itemIds.filter(id => !pastedMovedIds.includes(id));
+          if (newItemIds.length === folder.itemIds.length) return i;
+          return { ...folder, itemIds: newItemIds, updatedAt: Date.now() };
+        }
+        if (i.type === 'stack') {
+          if (i.id === targetStackId) return i; // 已是目标叠放，上面已加入
+          const stack = i as DesktopStackItem;
+          const newItemIds = stack.itemIds.filter(id => !pastedMovedIds.includes(id));
+          if (newItemIds.length === stack.itemIds.length) return i;
+          return { ...stack, itemIds: newItemIds, updatedAt: Date.now() };
+        }
+        return i;
+      });
+    }
+    
+    onItemsChange(newItems);
+    if (clipboard.action === 'cut') setClipboard(null);
     setContextMenu(null);
-  }, [clipboard, items, contextMenu, gridSize, findNearestFreePosition, onItemsChange]);
+  }, [clipboard, items, contextMenu, gridSize, findNearestFreePosition, onItemsChange, openFolderId, openStackId, maxX, maxY]);
 
   // 从文件夹中移出项目
   const handleMoveOutOfFolder = useCallback(() => {
@@ -1626,20 +1691,38 @@ export const Desktop: React.FC<DesktopProps> = ({
     // 收集所有要添加的项目
     const newItemsToAdd: DesktopItem[] = [];
     
-    // 初始化已占用位置集合
+    // 初始化已占用位置集合（与粘贴一致：当前在文件夹内则只统计该文件夹内位置，否则统计最外层）
     const occupiedPositions = new Set<string>();
-    items.forEach(item => {
-      const isInFolder = items.some(
-        other => other.type === 'folder' && (other as DesktopFolderItem).itemIds.includes(item.id)
-      );
-      const isInStack = items.some(
-        other => other.type === 'stack' && (other as DesktopStackItem).itemIds.includes(item.id)
-      );
-      if (!isInFolder && !isInStack) {
-        const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
-        occupiedPositions.add(posKey);
+    if (openFolderId) {
+      const folder = items.find(i => i.id === openFolderId) as DesktopFolderItem | undefined;
+      if (folder) {
+        items.filter(it => folder.itemIds.includes(it.id)).forEach(item => {
+          const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
+          occupiedPositions.add(posKey);
+        });
       }
-    });
+    } else if (openStackId) {
+      const stack = items.find(i => i.id === openStackId) as DesktopStackItem | undefined;
+      if (stack) {
+        items.filter(it => stack.itemIds.includes(it.id)).forEach(item => {
+          const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
+          occupiedPositions.add(posKey);
+        });
+      }
+    } else {
+      items.forEach(item => {
+        const isInFolder = items.some(
+          other => other.type === 'folder' && (other as DesktopFolderItem).itemIds.includes(item.id)
+        );
+        const isInStack = items.some(
+          other => other.type === 'stack' && (other as DesktopStackItem).itemIds.includes(item.id)
+        );
+        if (!isInFolder && !isInStack) {
+          const posKey = `${Math.round(item.position.x / gridSize)},${Math.round(item.position.y / gridSize)}`;
+          occupiedPositions.add(posKey);
+        }
+      });
+    }
     
     // 辅助函数：找到下一个空闲位置并更新占用集合
     const getNextFreePosition = (): DesktopPosition => {
@@ -1766,10 +1849,9 @@ export const Desktop: React.FC<DesktopProps> = ({
       }
     }
     
-    // 一次性更新所有项目
+    // 一次性更新所有项目（与粘贴一致：当前在文件夹/叠放内则放入当前视图）
     if (newItemsToAdd.length > 0) {
       if (openFolderId) {
-        // 在文件夹内拖入文件：将新项目 ID 添加到当前文件夹的 itemIds 中
         const newItemIds = newItemsToAdd.map(item => item.id);
         onItemsChange(
           [...items, ...newItemsToAdd].map(item => {
@@ -1780,11 +1862,22 @@ export const Desktop: React.FC<DesktopProps> = ({
             return item;
           })
         );
+      } else if (openStackId) {
+        const newItemIds = newItemsToAdd.map(item => item.id);
+        onItemsChange(
+          [...items, ...newItemsToAdd].map(item => {
+            if (item.id === openStackId && item.type === 'stack') {
+              const stack = item as DesktopStackItem;
+              return { ...stack, itemIds: [...stack.itemIds, ...newItemIds], updatedAt: Date.now() };
+            }
+            return item;
+          })
+        );
       } else {
         onItemsChange([...items, ...newItemsToAdd]);
       }
     }
-  }, [items, onItemsChange, maxX, maxY, gridSize, openFolderId]);
+  }, [items, onItemsChange, maxX, maxY, gridSize, openFolderId, openStackId]);
   
   // 从FIleSystemFileEntry获取File对象
   const getFileFromEntry = (entry: FileSystemFileEntry): Promise<File | null> => {
@@ -3096,36 +3189,6 @@ export const Desktop: React.FC<DesktopProps> = ({
                   {/* 🔧 以下选项只对图片有效 */}
                   {items.find(i => i.id === contextMenu.itemId)?.type === 'image' && (
                     <>
-                      {/* 编辑 - 紫色 */}
-                      {onImageEditAgain && (
-                        <button
-                          onClick={() => {
-                            const item = items.find(i => i.id === contextMenu.itemId) as DesktopImageItem;
-                            if (item) onImageEditAgain(item);
-                            setContextMenu(null);
-                          }}
-                          className="w-full px-3 py-2 text-left text-[12px] hover:bg-purple-500/10 transition-colors flex items-center gap-2"
-                          style={{ color: theme.colors.textPrimary }}
-                        >
-                          <EditIcon className="w-4 h-4 text-purple-400" />
-                          <span>编辑</span>
-                        </button>
-                      )}
-                      {/* 重新生成 - 绿色 */}
-                      {onImageRegenerate && (
-                        <button
-                          onClick={() => {
-                            const item = items.find(i => i.id === contextMenu.itemId) as DesktopImageItem;
-                            if (item) onImageRegenerate(item);
-                            setContextMenu(null);
-                          }}
-                          className="w-full px-3 py-2 text-left text-[12px] hover:bg-emerald-500/10 transition-colors flex items-center gap-2"
-                          style={{ color: theme.colors.textPrimary }}
-                        >
-                          <RefreshIcon className="w-4 h-4 text-emerald-400" />
-                          <span>重生成</span>
-                        </button>
-                      )}
                       {/* 创建创意库 - 蓝色 */}
                       {onCreateCreativeIdea && (
                         <button
@@ -3261,28 +3324,6 @@ export const Desktop: React.FC<DesktopProps> = ({
               {/* 选中图片时的导出选项 */}
               {selectedIds.some(id => items.find(i => i.id === id)?.type === 'image') && (
                 <>
-                  {/* 批量编辑 - 将所有选中的图片添加到资源素材 */}
-                  {onImageEditAgain && (
-                    <button
-                      onClick={async () => {
-                        // 获取所有选中的图片类型项目
-                        const selectedImages = selectedIds
-                          .map(id => items.find(i => i.id === id))
-                          .filter((item): item is DesktopImageItem => item?.type === 'image');
-                        
-                        // 逐个添加到资源素材
-                        for (const img of selectedImages) {
-                          await onImageEditAgain(img);
-                        }
-                        setContextMenu(null);
-                      }}
-                      className="w-full px-3 py-2 text-left text-[12px] hover:bg-purple-500/10 transition-colors flex items-center gap-2"
-                      style={{ color: theme.colors.textPrimary }}
-                    >
-                      <EditIcon className="w-4 h-4 text-purple-400" />
-                      <span>编辑选中图片 ({selectedIds.filter(id => items.find(i => i.id === id)?.type === 'image').length})</span>
-                    </button>
-                  )}
                   <button
                     onClick={async () => {
                       await handleExportSelected(true);

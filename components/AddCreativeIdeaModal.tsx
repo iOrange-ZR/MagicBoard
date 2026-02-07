@@ -492,8 +492,8 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
                       color: theme.colors.textSecondary
                     }}
                   >
-                    {type === 'standard' && '标准'}
-                    {type === 'bp' && '变量模式'}
+                    {type === 'standard' && '纯文本'}
+                    {type === 'bp' && '智能变量'}
                   </button>
                 ))}
               </div>
@@ -594,7 +594,7 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
                 <span className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
                   {ideaType === 'standard' && "提示词编辑"}
                   {ideaType === 'smartPlus' && "基础场景"}
-                  {ideaType === 'bp' && "BP 编排模板"}
+                  {ideaType === 'bp' && "智能变量编排"}
                 </span>
               </div>
               {/* BP模式下显示可点击的变量标签 */}
@@ -656,7 +656,7 @@ export const AddCreativeIdeaModal: React.FC<AddCreativeIdeaModalProps> = ({ isOp
                   }}
                 >
                   <div className="flex justify-between items-center mb-3">
-                    <span className="text-xs font-medium" style={{ color: '#eed16d' }}>BP 变量配置</span>
+                    <span className="text-xs font-medium" style={{ color: '#eed16d' }}>智能变量配置</span>
                     <div className="flex gap-2">
                       <button 
                         onClick={() => handleAddBPField('input')} 

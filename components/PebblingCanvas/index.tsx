@@ -21,6 +21,7 @@ import { downloadRemoteToOutput, saveVideoToOutput, saveBatchToOutput } from '..
 import type { BatchSaveItem } from '../../services/api/files';
 import { Icons } from './Icons';
 import { getVideoModelFamily } from '../../constants/videoModels';
+import { toAbsoluteFilesUrl, getThumbnailUrl } from '../../utils/image';
 
 // === 画布用API适配器，桥接主项目的geminiService ===
 
@@ -311,6 +312,14 @@ export interface BatchSavedOptions {
 
 /** 画布节点类型中与创意库 WorkflowNode 兼容的子集 */
 const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = ['text', 'image', 'edit', 'video', 'llm', 'resize', 'relay', 'remove-bg', 'upscale'];
+
+/** BP 智能体输出截断：取首句或前 maxLen 字，避免长段扩写进入图生提示词 */
+function truncateAgentResultForPrompt(raw: string, maxLen: number): string {
+  if (!raw || raw.length <= maxLen) return raw;
+  const sentenceEnd = raw.match(/[。！？.!?]\s*/);
+  const firstSentence = sentenceEnd ? raw.slice(0, (sentenceEnd.index ?? 0) + 1) : raw.slice(0, maxLen);
+  return (firstSentence.length > maxLen ? firstSentence.slice(0, maxLen) : firstSentence).trim();
+}
 
 function canvasNodeToWorkflowNode(n: CanvasNode): WorkflowNode {
   const type = (WORKFLOW_NODE_TYPES.includes(n.type as WorkflowNodeType) ? n.type : 'relay') as WorkflowNodeType;
@@ -2414,9 +2423,9 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       let settings: any = {};
       
       if (sourceNode.type === 'bp') {
-          // BP节点：处理Agent和模板
           const bpTemplate = sourceNode.data?.bpTemplate;
           const bpInputs = sourceNode.data?.bpInputs || {};
+          const bpAgentInstructionOverrides = sourceNode.data?.bpAgentInstructionOverrides || {};
           settings = sourceNode.data?.settings || {};
           
           if (!bpTemplate) {
@@ -2429,45 +2438,50 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           const inputFields = bpFields.filter((f: any) => f.type === 'input');
           const agentFields = bpFields.filter((f: any) => f.type === 'agent');
           
-          // 收集用户输入值
+          // 收集用户输入值；未填写时用 label 回退
           const userInputValues: Record<string, string> = {};
           for (const field of inputFields) {
-              userInputValues[field.name] = bpInputs[field.id] || bpInputs[field.name] || '';
+              const raw = bpInputs[field.id] ?? bpInputs[field.name] ?? '';
+              userInputValues[field.name] = (typeof raw === 'string' && raw.trim() !== '') ? raw.trim() : (field.label || '');
           }
           
-          // 执行Agent
           const agentResults: Record<string, string> = {};
           for (const field of agentFields) {
               if (field.agentConfig) {
-                  let instruction = field.agentConfig.instruction;
+                  let instruction = (bpAgentInstructionOverrides[field.name] ?? field.agentConfig.instruction).trim();
+                  if (!instruction) continue;
                   for (const [name, value] of Object.entries(userInputValues)) {
                       instruction = instruction.split(`/${name}`).join(value);
                   }
                   for (const [name, result] of Object.entries(agentResults)) {
                       instruction = instruction.split(`{${name}}`).join(result);
                   }
-                  
                   try {
                       const agentResult = await generateAdvancedLLM(
                           instruction,
-                          'You are a creative assistant. Generate content based on the given instruction. Output ONLY the requested content, no explanations.',
-                          inputImages.length > 0 ? [inputImages[0]] : undefined
+                          'You are a concise assistant. Output ONLY one short phrase or sentence. Rules: (1) Under 40 characters in Chinese or 20 words in English. (2) Do NOT expand into paragraphs. (3) If the instruction is already a phrase (e.g. "繁华的街道上"), output it as-is or with minimal refinement—never rewrite into long prose.',
+                          inputImages.length > 0 ? [inputImages[0]] : undefined,
+                          80
                       );
-                      agentResults[field.name] = agentResult;
+                      const raw = (typeof agentResult === 'string' ? agentResult : String(agentResult ?? '')).trim();
+                      agentResults[field.name] = truncateAgentResultForPrompt(raw, 60);
                   } catch (agentErr) {
                       agentResults[field.name] = `[Agent错误: ${agentErr}]`;
                   }
               }
           }
           
-          // 替换模板变量
-          finalPrompt = bpTemplate.prompt;
+          // 替换模板变量（先 /name 再 {name}）
+          finalPrompt = (bpTemplate.prompt || '').trim();
           for (const [name, value] of Object.entries(userInputValues)) {
-              finalPrompt = finalPrompt.split(`/${name}`).join(value);
+              const needle = `/${name}`;
+              if (finalPrompt.includes(needle)) finalPrompt = finalPrompt.split(needle).join(value || '');
           }
           for (const [name, result] of Object.entries(agentResults)) {
-              finalPrompt = finalPrompt.split(`{${name}}`).join(result);
+              const needle = `{${name}}`;
+              if (finalPrompt.includes(needle)) finalPrompt = finalPrompt.split(needle).join((result != null && typeof result === 'string') ? result : '');
           }
+          finalPrompt = finalPrompt.trim();
       }
       
       if (!finalPrompt) {
@@ -4017,6 +4031,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               // BP节点：内置智能体+模板，执行图片生成
               const bpTemplate = node.data?.bpTemplate;
               const bpInputs = node.data?.bpInputs || {};
+              const bpAgentInstructionOverrides = node.data?.bpAgentInstructionOverrides || {};
               const inputImages = inputs.images;
               
               if (!bpTemplate) {
@@ -4033,12 +4048,12 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       console.log('[BP节点] Input字段:', inputFields.map(f => f.name));
                       console.log('[BP节点] Agent字段:', agentFields.map(f => f.name));
                       
-                      // 1. 收集用户输入值（input字段）
+                      // 1. 收集用户输入值（input字段）；未填写时用 label 作为回退，避免最终提示词缺段
                       const userInputValues: Record<string, string> = {};
                       for (const field of inputFields) {
-                          // input字段从bpInputs中取值（可以是field.id或field.name）
-                          userInputValues[field.name] = bpInputs[field.id] || bpInputs[field.name] || '';
-                          console.log(`[BP节点] Input ${field.name} = "${userInputValues[field.name]}"`);
+                          const raw = bpInputs[field.id] ?? bpInputs[field.name] ?? '';
+                          userInputValues[field.name] = (typeof raw === 'string' && raw.trim() !== '') ? raw.trim() : (field.label || '');
+                          console.log(`[BP节点] Input ${field.name} = "${userInputValues[field.name]}" (raw: "${raw}")`);
                       }
                       
                       // 2. 按顺序执行智能体字段（agent字段）
@@ -4046,8 +4061,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       
                       for (const field of agentFields) {
                           if (field.agentConfig) {
-                              // 准备agent的instruction：替换其中的变量
-                              let instruction = field.agentConfig.instruction;
+                              let instruction = (bpAgentInstructionOverrides[field.name] ?? field.agentConfig.instruction).trim();
+                              if (!instruction) continue;
                               
                               // 替换 /inputName 为用户输入值
                               for (const [name, value] of Object.entries(userInputValues)) {
@@ -4064,12 +4079,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                               // 调用LLM执行agent
                               try {
                                   const agentResult = await generateAdvancedLLM(
-                                      instruction, // instruction作为user prompt
-                                      'You are a creative assistant. Generate content based on the given instruction. Output ONLY the requested content, no explanations.',
-                                      inputImages.length > 0 ? [inputImages[0]] : undefined
+                                      instruction,
+                                      'You are a concise assistant. Output ONLY one short phrase or sentence. Rules: (1) Under 40 characters in Chinese or 20 words in English. (2) Do NOT expand into paragraphs. (3) If the instruction is already a phrase (e.g. "繁华的街道上"), output it as-is or with minimal refinement—never rewrite into long prose.',
+                                      inputImages.length > 0 ? [inputImages[0]] : undefined,
+                                      80
                                   );
-                                  agentResults[field.name] = agentResult;
-                                  console.log(`[BP节点] Agent ${field.name} 返回:`, agentResult.slice(0, 100));
+                                  const raw = (typeof agentResult === 'string' ? agentResult : String(agentResult ?? '')).trim();
+                                  agentResults[field.name] = truncateAgentResultForPrompt(raw, 60);
+                                  console.log(`[BP节点] Agent ${field.name} 返回:`, agentResults[field.name].slice(0, 100));
                               } catch (agentErr) {
                                   console.error(`[BP节点] Agent ${field.name} 执行失败:`, agentErr);
                                   agentResults[field.name] = `[Agent错误: ${agentErr}]`;
@@ -4077,28 +4094,27 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                           }
                       }
                       
-                      // 3. 替换最终模板中的所有变量
-                      let finalPrompt = bpTemplate.prompt;
+                      // 3. 替换最终模板中的所有变量（先替换手动变量 /name，再替换智能体 {name}）
+                      let finalPrompt = (bpTemplate.prompt || '').trim();
                       console.log('[BP节点] 原始模板:', finalPrompt);
                       
-                      // 替换 /inputName 为用户输入值
                       for (const [name, value] of Object.entries(userInputValues)) {
-                          const beforeReplace = finalPrompt;
-                          finalPrompt = finalPrompt.split(`/${name}`).join(value);
-                          if (beforeReplace !== finalPrompt) {
-                              console.log(`[BP节点] 替换 /${name} -> ${value.slice(0, 50)}`);
+                          const needle = `/${name}`;
+                          if (finalPrompt.includes(needle)) {
+                              finalPrompt = finalPrompt.split(needle).join(value || '');
+                              console.log(`[BP节点] 替换 ${needle} -> "${(value || '').slice(0, 50)}"`);
                           }
                       }
-                      
-                      // 替换 {agentName} 为agent结果
                       for (const [name, result] of Object.entries(agentResults)) {
-                          const beforeReplace = finalPrompt;
-                          finalPrompt = finalPrompt.split(`{${name}}`).join(result);
-                          if (beforeReplace !== finalPrompt) {
-                              console.log(`[BP节点] 替换 {${name}} -> ${result.slice(0, 50)}`);
+                          const needle = `{${name}}`;
+                          if (finalPrompt.includes(needle)) {
+                              const safe = (result != null && typeof result === 'string') ? result : '';
+                              finalPrompt = finalPrompt.split(needle).join(safe);
+                              console.log(`[BP节点] 替换 ${needle} -> "${safe.slice(0, 80)}..."`);
                           }
                       }
                       
+                      finalPrompt = finalPrompt.trim();
                       console.log('[BP节点] 最终提示词:', finalPrompt.slice(0, 300));
                       
                       // 4. 调用图片生成API
@@ -6474,7 +6490,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
               {[
                 { key: 'all', label: '全部' },
                 { key: 'favorite', label: '收藏' },
-                { key: 'bp', label: '变量模式' },
+                { key: 'bp', label: '智能变量' },
                 { key: 'workflow', label: '画布流程' },
               ].map(({ key, label }) => (
                 <button
@@ -6534,7 +6550,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                             {idea.title}
                           </span>
                           {idea.isWorkflow && <span className="text-[8px] bg-purple-500/30 text-purple-300 px-1 rounded flex-shrink-0">画布</span>}
-                          {idea.isBP && <span className="text-[8px] bg-blue-500/30 text-blue-300 px-1 rounded flex-shrink-0">变量</span>}
+                          {idea.isBP && <span className="text-[8px] bg-blue-500/30 text-blue-300 px-1 rounded flex-shrink-0">智能</span>}
                         </div>
                         <div className={`text-[9px] truncate ${isLightCanvas ? 'text-gray-500' : 'text-zinc-500'}`}>
                           {idea.isBP && idea.bpFields
@@ -6812,9 +6828,13 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         {list.map((item) => {
-                          const url = item.type === 'image' ? item.imageUrl : item.videoUrl;
-                          const thumb = item.type === 'image' ? (item.thumbnailUrl || item.imageUrl) : (item.thumbnailUrl || item.videoUrl);
+                          const url = item.type === 'image' ? item.imageUrl : (item as DesktopVideoItem).videoUrl;
                           const nodeType = item.type === 'image' ? 'image' : 'video-output';
+                          const isVideo = item.type === 'video';
+                          const videoItem = isVideo ? (item as DesktopVideoItem) : null;
+                          const thumbSrc = item.type === 'image'
+                            ? toAbsoluteFilesUrl(getThumbnailUrl(item.thumbnailUrl || item.imageUrl))
+                            : (videoItem?.thumbnailUrl ? toAbsoluteFilesUrl(getThumbnailUrl(videoItem.thumbnailUrl)) : '');
                           return (
                             <div
                               key={item.id}
@@ -6843,9 +6863,14 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                             >
                               <div className="aspect-square relative bg-black/20">
                                 {item.type === 'image' ? (
-                                  <img src={thumb} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                                  <img src={thumbSrc} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                                ) : thumbSrc ? (
+                                  <img src={thumbSrc} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
                                 ) : (
-                                  <video src={thumb} className="w-full h-full object-cover pointer-events-none" muted playsInline preload="metadata" draggable={false} />
+                                  <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-purple-900/60 to-gray-900">
+                                    <Icons.Video size={24} className={isLightCanvas ? 'text-purple-600' : 'text-purple-400'} />
+                                    <span className={`text-[9px] font-medium mt-0.5 ${isLightCanvas ? 'text-purple-700' : 'text-purple-300'}`}>视频</span>
+                                  </div>
                                 )}
                               </div>
                               <div className={`px-1.5 py-1 truncate text-[9px] ${isLightCanvas ? 'text-gray-600' : 'text-zinc-400'}`}>

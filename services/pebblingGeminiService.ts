@@ -164,9 +164,10 @@ export const generateCreativeText = async (prompt: string): Promise<{ title: str
 // ===================== 高级 LLM（带图像理解）=====================
 
 export const generateAdvancedLLM = async (
-  userPrompt: string, 
-  systemInstruction?: string, 
-  inputImages?: string[]
+  userPrompt: string,
+  systemInstruction?: string,
+  inputImages?: string[],
+  maxTokens?: number
 ): Promise<string> => {
   const config = getApiConfig();
   
@@ -205,8 +206,8 @@ export const generateAdvancedLLM = async (
     const requestBody = {
       model: config.chatModel,
       messages,
-      max_tokens: 2000,
-      temperature: 0.7
+      max_tokens: maxTokens ?? 2000,
+      temperature: maxTokens != null ? 0.3 : 0.7
     };
 
     const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {

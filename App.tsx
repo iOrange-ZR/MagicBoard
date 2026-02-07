@@ -621,7 +621,7 @@ const BPModePanel: React.FC<{
           <div className="w-5 h-5 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(238,209,109,0.25)' }}>
             <BoltIcon className="w-3 h-3" style={{ color: '#eed16d' }} />
           </div>
-          <h3 className="text-xs font-semibold" style={{ color: isDark ? '#fff' : '#0f172a' }}>变量模式</h3>
+          <h3 className="text-xs font-semibold" style={{ color: isDark ? '#fff' : '#0f172a' }}>智能变量</h3>
           {/* 作者显示 */}
           {template.author && (
             <span
@@ -721,13 +721,13 @@ const RightPanel: React.FC<RightPanelProps> = ({
           <span className="text-[11px] font-medium truncate" style={{ color: theme.colors.textPrimary }}>
             {idea.title}
           </span>
-          {/* 变量模式标签 */}
+          {/* 智能变量标签 */}
           {idea.isBP && (
             <span
               className="px-1 py-0.5 text-[8px] font-bold rounded flex-shrink-0"
               style={{ backgroundColor: 'rgba(238,209,109,0.25)', color: '#eed16d' }}
             >
-              变量
+              智能
             </span>
           )}
         </div>
@@ -2294,7 +2294,7 @@ const App: React.FC = () => {
       if (activeBPTemplate) {
         // BP Mode Logic (New Orchestration)
         if (!hasValidApi) {
-          alert('变量模式运行智能体需要配置 API Key（Gemini 或API）');
+          alert('智能变量运行智能体需要配置 API Key（Gemini 或API）');
           setSmartPromptGenStatus(ApiStatus.Idle);
           return;
         }
@@ -2305,7 +2305,7 @@ const App: React.FC = () => {
       } else {
         // Standard/Smart Logic (Legacy)
         if (!hasValidApi) {
-          alert('智能提示词生成需要配置 API Key（Gemini 或API）');
+          alert('智能变量生成需要配置 API Key（Gemini 或API）');
           setSmartPromptGenStatus(ApiStatus.Idle);
           return;
         }
@@ -2342,7 +2342,7 @@ const App: React.FC = () => {
 
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
       console.error(errorMessage);
-      alert(`智能提示词生成失败: ${errorMessage}`);
+      alert(`智能变量生成失败: ${errorMessage}`);
       setSmartPromptGenStatus(ApiStatus.Error);
       setAbortController(null); // 清除控制器
     }

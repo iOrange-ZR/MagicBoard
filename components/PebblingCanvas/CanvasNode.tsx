@@ -5,7 +5,7 @@ import { Icons } from './Icons';
 import { ChevronDown, Upload } from 'lucide-react';
 import { useRHTaskQueue } from '../../contexts/RHTaskQueueContext';
 import { comfyuiUploadImage } from '../../services/api/comfyui';
-import { VIDEO_MODEL_LIST, getVideoModelInfo, isSoraModel, isVeoModel } from '../../constants/videoModels';
+import { VIDEO_MODEL_GROUPS, getVideoModelInfo, getModelGroupLabel, isSoraModel, isVeoModel } from '../../constants/videoModels';
 import { isKlingServerAccessibleVideoUrl } from '../../services/klingVideoService';
 
 // 香蕉SVG图标组件
@@ -23,6 +23,49 @@ const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14
 
 /** 移除背景节点默认提示词（与后端一致，用于节点上展示） */
 const REMOVE_BG_DEFAULT_PROMPT = 'Remove the background, keep subject on transparent or white background';
+
+/** 将 BP 模板提示词解析为片段：普通文本、手动变量 /name、智能体变量 {name} */
+function parseBPPromptSegments(
+  template: string,
+  bpFields: Array<{ type: string; name: string }>
+): Array<{ type: 'text' | 'input' | 'agent'; value: string; name?: string }> {
+  const inputNames = bpFields.filter((f: any) => f.type === 'input').map((f: any) => f.name);
+  const agentNames = bpFields.filter((f: any) => f.type === 'agent').map((f: any) => f.name);
+  const matches: { index: number; type: 'input' | 'agent'; name: string; length: number }[] = [];
+  const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  inputNames.forEach((name: string) => {
+    const re = new RegExp('/' + escapeRe(name) + '(?![a-zA-Z0-9_])', 'g');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(template)) !== null) {
+      matches.push({ index: m.index, type: 'input', name, length: m[0].length });
+    }
+  });
+  agentNames.forEach((name: string) => {
+    const re = new RegExp('\\{' + escapeRe(name) + '\\}', 'g');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(template)) !== null) {
+      matches.push({ index: m.index, type: 'agent', name, length: m[0].length });
+    }
+  });
+  matches.sort((a, b) => a.index - b.index);
+  const segments: Array<{ type: 'text' | 'input' | 'agent'; value: string; name?: string }> = [];
+  let last = 0;
+  for (const m of matches) {
+    if (m.index > last) {
+      segments.push({ type: 'text', value: template.slice(last, m.index) });
+    }
+    segments.push({
+      type: m.type,
+      value: m.type === 'input' ? '/' + m.name : '{' + m.name + '}',
+      name: m.name,
+    });
+    last = m.index + m.length;
+  }
+  if (last < template.length) {
+    segments.push({ type: 'text', value: template.slice(last) });
+  }
+  return segments;
+}
 
 /** 预览节点缩略图：进入视口后再加载，避免多图/多视频同时加载导致卡顿 */
 const PreviewThumbnail = memo<{
@@ -527,6 +570,8 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [openSelectKey, setOpenSelectKey] = useState<string | null>(null); // 自定义下拉框状态
   const [rhBatchCount, setRhBatchCount] = useState(1); // rh-config 节点批次数量
+  const [editingBpAgentName, setEditingBpAgentName] = useState<string | null>(null); // BP 节点：当前正在编辑「给 LLM 的指令」的 agent 变量名
+  const [editingBpInputName, setEditingBpInputName] = useState<string | null>(null); // BP 节点：当前正在弹出编辑的手动变量名
   const nodeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const klingPromptRef = useRef<HTMLTextAreaElement>(null);
@@ -1332,10 +1377,12 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             node.content.startsWith('/files/') ||
             node.content.startsWith('/api/')
         );
-        console.log('[BP节点渲染] content:', node.content?.slice(0, 80), 'hasImage:', hasImage);
-        
-        // 只筛选input类型的字段（变量），不显示agent类型
         const inputFields = bpFields.filter((f: any) => f.type === 'input');
+        const bpAgentInstructionOverrides = node.data?.bpAgentInstructionOverrides || {};
+        const promptSegments = (bpTemplate?.prompt && bpFields.length > 0)
+            ? parseBPPromptSegments(bpTemplate.prompt, bpFields)
+            : [];
+        const hasPromptPreview = promptSegments.length > 0;
         
         const handleBpInputChange = (fieldName: string, value: string) => {
             const newInputs = { ...bpInputs, [fieldName]: value };
@@ -1350,6 +1397,14 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
             });
         };
         
+        const handleBpAgentInstructionOverride = (agentName: string, value: string) => {
+            const next = { ...bpAgentInstructionOverrides };
+            if (value.trim() === '') delete next[agentName];
+            else next[agentName] = value;
+            onUpdate(node.id, { data: { ...node.data, bpAgentInstructionOverrides: next } });
+            setEditingBpAgentName(null);
+        };
+        
         const aspectRatios1 = ['AUTO', '1:1', '2:3', '3:2', '3:4', '4:3'];
         const aspectRatios2 = ['3:5', '5:3', '9:16', '16:9', '21:9'];
         const resolutions = ['1K', '2K', '4K'];
@@ -1361,10 +1416,10 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                     <div className="flex items-center gap-2">
                         <Icons.Sparkles size={12} style={{ color: isLightCanvas ? '#3b82f6' : '#93c5fd' }} />
                         <span className="text-[10px] font-bold truncate max-w-[200px]" style={{ color: isLightCanvas ? '#2563eb' : '#bfdbfe' }}>
-                            {bpTemplate?.title || '变量模板'}
+                            {bpTemplate?.title || '智能变量模板'}
                         </span>
                     </div>
-                    <span className="text-[8px] px-1.5 py-0.5 rounded" style={{ color: isLightCanvas ? '#1d4ed8' : 'rgba(147,197,253,0.6)', backgroundColor: isLightCanvas ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.2)' }}>变量</span>
+                    <span className="text-[8px] px-1.5 py-0.5 rounded" style={{ color: isLightCanvas ? '#1d4ed8' : 'rgba(147,197,253,0.6)', backgroundColor: isLightCanvas ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.2)' }}>智能</span>
                 </div>
                 
                 {hasImage ? (
@@ -1384,30 +1439,129 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         />
                     </div>
                 ) : (
-                    // 无图片：显示输入和设置
+                    // 无图片：完整提示词预览（手动变量=输入框，agent 变量=高亮可点击单次覆盖）+ 设置
                     <>
-                        {/* 变量输入 */}
-                        <div className="flex-1 p-3 overflow-y-auto space-y-3" onWheel={(e) => e.stopPropagation()}>
-                            {inputFields.length === 0 ? (
-                                <div className="text-center text-zinc-500 text-xs py-4">
-                                    无变量输入
+                        {/* 完整提示词预览 */}
+                        <div className="flex-1 p-3 overflow-y-auto min-h-0" onWheel={(e) => e.stopPropagation()}>
+                            {hasPromptPreview ? (
+                                <div 
+                                    className="text-[11px] leading-relaxed flex flex-wrap items-baseline gap-0.5"
+                                    style={{ color: themeColors.textPrimary, wordBreak: 'break-word' }}
+                                >
+                                    {promptSegments.map((seg, idx) => {
+                                        if (seg.type === 'text') {
+                                            return (
+                                                <span key={idx} className="whitespace-pre-wrap">{seg.value}</span>
+                                            );
+                                        }
+                                        if (seg.type === 'input' && seg.name !== undefined) {
+                                            const field = inputFields.find((f: any) => f.name === seg.name);
+                                            const isEditingInput = editingBpInputName === seg.name;
+                                            const value = bpInputs[seg.name] || '';
+                                            const label = field?.label || seg.name;
+                                            if (isEditingInput) {
+                                                return (
+                                                    <div key={idx} className="w-full mt-1" onMouseDown={(e) => e.stopPropagation()}>
+                                                        <textarea
+                                                            autoFocus
+                                                            rows={3}
+                                                            className="w-full px-2 py-1.5 rounded border text-[11px] outline-none focus:ring-1 resize-none min-h-[60px]"
+                                                            style={{
+                                                                background: isLightCanvas ? '#f5f5f7' : 'rgba(255,255,255,0.08)',
+                                                                borderColor: isLightCanvas ? 'rgba(59,130,246,0.4)' : 'rgba(147,197,253,0.4)',
+                                                                color: themeColors.textPrimary,
+                                                            }}
+                                                            placeholder={`输入 ${label}（将替换模板中的 /${seg.name}）`}
+                                                            defaultValue={value || label}
+                                                            onBlur={(e) => {
+                                                                handleBpInputChange(seg.name!, e.target.value);
+                                                                setEditingBpInputName(null);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Escape') setEditingBpInputName(null);
+                                                            }}
+                                                        />
+                                                        <p className="text-[9px] mt-0.5" style={{ color: themeColors.textMuted }}>保存后执行时用此内容替换模板中的 /{seg.name}</p>
+                                                    </div>
+                                                );
+                                            }
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    className="inline-block text-left min-w-0 max-w-full px-1.5 py-0.5 rounded border text-[11px] outline-none transition-colors hover:opacity-90 break-words whitespace-pre-wrap"
+                                                    style={{
+                                                        background: isLightCanvas ? '#f5f5f7' : 'rgba(255,255,255,0.08)',
+                                                        borderColor: isLightCanvas ? 'rgba(59,130,246,0.4)' : 'rgba(147,197,253,0.4)',
+                                                        color: value ? themeColors.textPrimary : themeColors.textMuted,
+                                                    }}
+                                                    title={`点击编辑 ${label}`}
+                                                    onClick={(e) => { e.stopPropagation(); setEditingBpInputName(seg.name!); }}
+                                                    onMouseDown={(e) => e.stopPropagation()}
+                                                >
+                                                    {value || label}
+                                                </button>
+                                            );
+                                        }
+                                        if (seg.type === 'agent' && seg.name !== undefined) {
+                                            const isEditing = editingBpAgentName === seg.name;
+                                            const agentField = bpFields.find((f: any) => f.type === 'agent' && f.name === seg.name);
+                                            const defaultInstruction = agentField?.agentConfig?.instruction ?? '';
+                                            const customInstruction = bpAgentInstructionOverrides[seg.name];
+                                            const hasCustom = customInstruction !== undefined && customInstruction.trim() !== '';
+                                            if (isEditing) {
+                                                return (
+                                                    <div key={idx} className="w-full mt-1" onMouseDown={(e) => e.stopPropagation()}>
+                                                        <textarea
+                                                            autoFocus
+                                                            rows={3}
+                                                            className="w-full px-2 py-1.5 rounded border text-[11px] outline-none focus:ring-1 resize-none"
+                                                            style={{
+                                                                background: isLightCanvas ? '#fef3c7' : 'rgba(251,191,36,0.2)',
+                                                                borderColor: 'rgba(245,158,11,0.6)',
+                                                                color: themeColors.textPrimary,
+                                                            }}
+                                                            placeholder="给智能体的指令（本次执行时发给 LLM）"
+                                                            defaultValue={customInstruction !== undefined ? customInstruction : defaultInstruction}
+                                                            onBlur={(e) => handleBpAgentInstructionOverride(seg.name!, e.target.value)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Escape') setEditingBpAgentName(null);
+                                                            }}
+                                                        />
+                                                        <p className="text-[9px] mt-0.5" style={{ color: themeColors.textMuted }}>保存后执行时用此指令调 LLM，替换模板中的默认指令</p>
+                                                    </div>
+                                                );
+                                            }
+                                            const agentLabel = agentField?.label || seg.name;
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    className="inline-block px-2 py-0.5 rounded cursor-pointer hover:opacity-90 transition-opacity"
+                                                    style={{
+                                                        background: isLightCanvas ? 'rgba(251,191,36,0.35)' : 'rgba(251,191,36,0.25)',
+                                                        color: isLightCanvas ? '#b45309' : '#fcd34d',
+                                                        border: '1px solid rgba(245,158,11,0.5)',
+                                                    }}
+                                                    title={`${agentLabel}（点击可临时修改「给 LLM 的指令」）`}
+                                                    onClick={(e) => { e.stopPropagation(); setEditingBpAgentName(seg.name!); }}
+                                                    onMouseDown={(e) => e.stopPropagation()}
+                                                >
+                                                    {hasCustom ? `${agentLabel} ✓` : agentLabel}
+                                                </button>
+                                            );
+                                        }
+                                        return null;
+                                    })}
                                 </div>
                             ) : (
-                                inputFields.map((field: any) => (
-                                    <div key={field.id} className="space-y-1">
-                                        <label className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
-                                            {field.label}
-                                        </label>
-                                        <input
-                                            type="text"
-                                            className={`w-full ${controlBg} border rounded-lg px-3 py-2 text-xs outline-none transition-colors ${isLightCanvas ? 'border-gray-200 text-gray-800 focus:border-blue-400 placeholder-gray-400' : 'border-white/10 text-zinc-200 focus:border-blue-500/50 placeholder-zinc-600'}`}
-                                            placeholder={`输入 ${field.label}`}
-                                            value={bpInputs[field.name] || ''}
-                                            onChange={(e) => handleBpInputChange(field.name, e.target.value)}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                        />
-                                    </div>
-                                ))
+                                <div className="text-center text-zinc-500 text-xs py-4">
+                                    {bpTemplate?.prompt ? (
+                                        <span className="whitespace-pre-wrap" style={{ color: themeColors.textMuted }}>{bpTemplate.prompt}</span>
+                                    ) : (
+                                        '无变量配置，请在创意库中编辑该模板并添加变量'
+                                    )}
+                                </div>
                             )}
                         </div>
                         
@@ -1458,7 +1612,14 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                 
                 {/* 底部状态 */}
                 <div className={`h-6 ${footerBarBg} border-t px-3 flex items-center justify-between text-[10px]`} style={{ borderColor: themeColors.headerBorder, color: themeColors.textMuted }}>
-                    <span>{hasImage ? '✅ 已生成' : `输入: ${Object.values(bpInputs).filter(v => v).length}/${inputFields.length}`}</span>
+                    <span>
+                        {hasImage ? '✅ 已生成' : (
+                            <>
+                                输入: {Object.values(bpInputs).filter(v => v).length}/{inputFields.length}
+                                {Object.keys(bpAgentInstructionOverrides).length > 0 && ` · 已改 ${Object.keys(bpAgentInstructionOverrides).length} 条 agent 指令`}
+                            </>
+                        )}
+                    </span>
                     <span>{settings.aspectRatio || '1:1'} · {settings.resolution || '2K'}</span>
                 </div>
                 
@@ -3529,21 +3690,53 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                     ? 'IMG+TXT → VIDEO'
                     : 'VIDEO';
 
+        const currentModelGroup = getModelGroupLabel(effectiveVideoModel) ?? VIDEO_MODEL_GROUPS[0].groupLabel;
+        const showSecondLevelMenu = currentModelGroup === '可灵' || currentModelGroup === '海螺';
+
         return (
             <div className="w-full h-full flex flex-col rounded-xl overflow-hidden relative shadow-lg" style={{ backgroundColor: themeColors.nodeBg, border: `1px solid ${themeColors.nodeBorder}` }}>
                 <div className="h-7 flex items-center justify-between px-3 shrink-0" style={{ borderBottom: `1px solid ${themeColors.headerBorder}`, backgroundColor: themeColors.headerBg }}>
                     <div className="flex items-center gap-1 flex-1 min-w-0">
                         <Icons.Video size={12} style={{ color: themeColors.textSecondary }} />
+                        {/* 一级：系列（Sora / Veo 3.1 仅此一级，具体由下方 SD/HD 或 Veo 参数选择） */}
                         <select
-                            className={`flex-1 min-w-0 max-w-[140px] ${controlBg} border-0 rounded px-1.5 py-0.5 text-[9px] font-medium outline-none ${isLightCanvas ? 'text-gray-800' : 'text-zinc-200'}`}
-                            value={effectiveVideoModel}
-                            onChange={(e) => handleVideoSettingChange('videoModel', e.target.value)}
+                            className={`min-w-0 ${showSecondLevelMenu ? 'max-w-[72px]' : 'max-w-[120px]'} ${controlBg} border-0 rounded px-1 py-0.5 text-[9px] font-medium outline-none ${isLightCanvas ? 'text-gray-800' : 'text-zinc-200'}`}
+                            value={currentModelGroup}
+                            onChange={(e) => {
+                                const group = VIDEO_MODEL_GROUPS.find((g) => g.groupLabel === e.target.value);
+                                if (group?.models[0]) {
+                                    const firstId = group.models[0].id;
+                                    onUpdate(node.id, {
+                                        data: {
+                                            ...node.data,
+                                            videoModel: firstId,
+                                            ...(firstId.startsWith('veo3.1') ? { veoModel: firstId } : {}),
+                                        },
+                                    });
+                                }
+                            }}
                             onMouseDown={(e) => e.stopPropagation()}
                         >
-                            {VIDEO_MODEL_LIST.map((m) => (
-                                <option key={m.id} value={m.id}>{m.label}</option>
+                            {VIDEO_MODEL_GROUPS.map((g) => (
+                                <option key={g.groupLabel} value={g.groupLabel}>{g.groupLabel}</option>
                             ))}
                         </select>
+                        {/* 二级：仅可灵、海螺显示；Sora 用 SD/HD，Veo 3.1 用参数区模型按钮 */}
+                        {showSecondLevelMenu ? (
+                            <select
+                                className={`flex-1 min-w-0 max-w-[100px] ${controlBg} border-0 rounded px-1 py-0.5 text-[9px] font-medium outline-none ${isLightCanvas ? 'text-gray-800' : 'text-zinc-200'}`}
+                                value={effectiveVideoModel}
+                                onChange={(e) => {
+                                    const id = e.target.value;
+                                    onUpdate(node.id, { data: { ...node.data, videoModel: id } });
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                {(VIDEO_MODEL_GROUPS.find((g) => g.models.some((m) => m.id === effectiveVideoModel)) ?? VIDEO_MODEL_GROUPS[0])?.models.map((m) => (
+                                    <option key={m.id} value={m.id}>{m.label}</option>
+                                ))}
+                            </select>
+                        ) : null}
                     </div>
                     <span className="text-[7px] text-white/40 uppercase shrink-0 ml-1">{modeSubtitle}</span>
                 </div>

@@ -1,7 +1,7 @@
 {
   "name": "tafa-aigc-tools",
   "private": true,
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "天津美术学院 · AIGC Tools 创意管理应用",
   "author": "天津美术学院",
   "type": "module",

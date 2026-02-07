@@ -67,6 +67,31 @@ const CreativeCard: React.FC<{
 }> = React.memo(({ idea, isSelected, isMultiSelectMode, sortBy, isLight, theme, style, onToggleSelect, onUse, onEdit, onDelete, onToggleFavorite, onExportSingle, dragItem, dragOverItem, onDragSort }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 画布流程且无缩略图时，不依赖图片加载，直接显示占位，避免一直转圈
+  const hasPreviewImage = !idea.isWorkflow || !!(idea.imageUrl && idea.imageUrl.trim() && normalizeImageUrl(idea.imageUrl));
+
+  // 单击打开编辑，双击快速收藏（延迟执行单击以区分双击）
+  const handleCardClick = () => {
+    if (isMultiSelectMode) {
+      onToggleSelect(idea.id);
+      return;
+    }
+    if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+    clickTimeoutRef.current = setTimeout(() => {
+      clickTimeoutRef.current = null;
+      onEdit(idea);
+    }, 250);
+  };
+  const handleCardDoubleClick = () => {
+    if (isMultiSelectMode) return;
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    onToggleFavorite?.(idea.id);
+  };
 
   return (
     <div style={style}>
@@ -81,13 +106,8 @@ const CreativeCard: React.FC<{
           height: '100%',
         }}
         title={idea.title}
-        onClick={() => {
-          if (isMultiSelectMode) {
-            onToggleSelect(idea.id);
-          } else {
-            onUse(idea);
-          }
-        }}
+        onClick={handleCardClick}
+        onDoubleClick={handleCardDoubleClick}
         draggable={!isMultiSelectMode && sortBy === 'manual'}
         onDragStart={() => (dragItem.current = idea)}
         onDragEnter={() => (dragOverItem.current = idea)}
@@ -107,22 +127,33 @@ const CreativeCard: React.FC<{
           </div>
         )}
 
-        {/* 图片懒加载 */}
-        {!imageLoaded && !imageError && (
+        {/* 图片懒加载：仅在有预览图且未加载完时显示转圈；画布流程无图时显示占位 */}
+        {hasPreviewImage && !imageLoaded && !imageError && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-700">
             <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
           </div>
         )}
-        <img
-          src={normalizeImageUrl(idea.imageUrl)}
-          alt={idea.title}
-          loading="lazy"
-          onLoad={() => setImageLoaded(true)}
-          onError={() => setImageError(true)}
-          className={`w-full h-full object-contain transition-transform duration-500 group-hover:scale-105 p-0.5 pointer-events-none ${
-            isSelected ? 'opacity-80' : ''
-          } ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-        />
+        {!hasPreviewImage && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+            <Layers className="w-10 h-10 mb-1.5 opacity-80" />
+            <span className="text-xs font-medium">画布流程</span>
+            <span className="text-[10px] mt-0.5">
+              {idea.workflowNodes?.length ?? 0} 节点
+            </span>
+          </div>
+        )}
+        {hasPreviewImage && (
+          <img
+            src={normalizeImageUrl(idea.imageUrl)}
+            alt={idea.title}
+            loading="lazy"
+            onLoad={() => setImageLoaded(true)}
+            onError={() => setImageError(true)}
+            className={`w-full h-full object-contain transition-transform duration-500 group-hover:scale-105 p-0.5 pointer-events-none ${
+              isSelected ? 'opacity-80' : ''
+            } ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+          />
+        )}
 
         {/* 底部信息 */}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pointer-events-none transition-all duration-300 group-hover:from-black/98 group-hover:via-black/85">
@@ -244,7 +275,7 @@ const CreativeCard: React.FC<{
                 className="px-1.5 py-0.5 text-[9px] font-bold rounded-full backdrop-blur-sm pointer-events-none shadow-lg"
                 style={{ backgroundColor: '#eed16d', color: '#1a1a2e', boxShadow: '0 4px 6px -1px rgba(238,209,109,0.3)' }}
               >
-                变量
+                智能
               </div>
             )}
             {idea.isWorkflow && (
@@ -724,7 +755,7 @@ export const CreativeLibrary: React.FC<CreativeLibraryProps> = ({ ideas, onBack,
   const filterButtons: { key: FilterType, label: string }[] = [
     { key: 'all', label: '全部' },
     { key: 'favorite', label: '⭐ 收藏' },
-    { key: 'bp', label: '变量模式' },
+    { key: 'bp', label: '智能变量' },
     { key: 'workflow', label: '📊 画布流程' },
   ];
 

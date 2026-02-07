@@ -33,8 +33,22 @@ export const VIDEO_MODEL_LIST: VideoModelItem[] = [
 
 const VIDEO_MODEL_MAP = new Map(VIDEO_MODEL_LIST.map((m) => [m.id, m]));
 
+/** 二级菜单：按系列分组，一级为系列名，二级为该系列下的具体模型 */
+export const VIDEO_MODEL_GROUPS: { groupLabel: string; models: VideoModelItem[] }[] = [
+  { groupLabel: 'Sora', models: VIDEO_MODEL_LIST.filter((m) => m.id === 'sora-2' || m.id === 'sora-2-pro') },
+  { groupLabel: 'Veo 3.1', models: VIDEO_MODEL_LIST.filter((m) => m.id.startsWith('veo3.1')) },
+  { groupLabel: '可灵', models: VIDEO_MODEL_LIST.filter((m) => m.family === 'kling') },
+  { groupLabel: '海螺', models: VIDEO_MODEL_LIST.filter((m) => m.family === 'minimax') },
+];
+
 export function getVideoModelInfo(modelId: string): VideoModelItem | undefined {
   return VIDEO_MODEL_MAP.get(modelId);
+}
+
+/** 根据 modelId 得到所属系列标签，用于二级菜单当前选中 */
+export function getModelGroupLabel(modelId: string): string | undefined {
+  const g = VIDEO_MODEL_GROUPS.find((gr) => gr.models.some((m) => m.id === modelId));
+  return g?.groupLabel;
 }
 
 export function getVideoModelFamily(modelId: string): VideoModelFamily | undefined {
