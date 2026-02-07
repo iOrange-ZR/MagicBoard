@@ -127,6 +127,8 @@ interface CanvasProps {
   canvasSaveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   // 将画布流程保存到创意文本库
   onSaveWorkflowToCreativeLibrary?: (idea: Omit<CreativeIdea, 'id'>) => Promise<void>;
+  // 画布预览节点内双击缩略图时打开原图/视频全屏预览
+  onCanvasImagePreview?: (url: string) => void;
 }
 
 // IndexedDB 相关操作已迁移到 services/db/ 目录
@@ -962,6 +964,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onAddToCanvas,
   canvasSaveRef,
   onSaveWorkflowToCreativeLibrary,
+  onCanvasImagePreview,
 }) => {
   const { theme, themeName } = useTheme();
   const isDark = themeName !== 'light';
@@ -1069,6 +1072,7 @@ const Canvas: React.FC<CanvasProps> = ({
           onPendingImageAdded={onClearPendingCanvasImage}
           saveRef={canvasSaveRef}
           onSaveWorkflowToCreativeLibrary={onSaveWorkflowToCreativeLibrary}
+          onImagePreview={onCanvasImagePreview}
         />
       </div>
 
@@ -2946,13 +2950,13 @@ const App: React.FC = () => {
         type: 'folder',
         name: label,
         position: batchFolderPosition,
-        itemIds: imageItems.map(i => i.id),
+        itemIds: newItems.map(i => i.id),
         color: '#10b981',
         createdAt: now,
         updatedAt: now,
       };
 
-      let next = [...prev, ...imageItems, batchFolder];
+      let next = [...prev, ...newItems, batchFolder];
 
       if (targetParentFolder) {
         // 将 batchFolder 添加到画布文件夹中
@@ -3771,6 +3775,7 @@ const App: React.FC = () => {
           onAddToCanvas={handleAddToCanvas}
           canvasSaveRef={canvasSaveRef}
           onSaveWorkflowToCreativeLibrary={handleSaveWorkflowToCreativeLibrary}
+          onCanvasImagePreview={(url) => setPreviewImageUrl(url)}
         />
         {/* 编辑器底部的批量生成UI已移除 - 图片生成功能已整合到画布的图片节点中 */}
       </div>

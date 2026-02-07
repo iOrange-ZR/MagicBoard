@@ -198,11 +198,12 @@ const generateCreativeText = async (content: string): Promise<{ title: string; c
   }
 };
 
-// LLM文本处理
+// LLM文本处理（与 pebblingGeminiService 签名对齐，maxTokens 可选）
 const generateAdvancedLLM = async (
   userPrompt: string,
   systemPrompt?: string,
-  images?: string[]
+  images?: string[],
+  _maxTokens?: number
 ): Promise<string> => {
   try {
     const system = systemPrompt || 'You are a helpful assistant.';
@@ -349,6 +350,8 @@ interface PebblingCanvasProps {
   saveRef?: React.MutableRefObject<(() => Promise<void>) | null>; // 暴露保存函数给父组件
   /** 将画布流程保存到创意文本库（作为画布流程条目），便于在创意库中复用 */
   onSaveWorkflowToCreativeLibrary?: (idea: Omit<CreativeIdea, 'id'>) => Promise<void>;
+  /** 预览节点内双击缩略图时打开原图/视频全屏预览 */
+  onImagePreview?: (imageUrl: string) => void;
 }
 
 const PebblingCanvas: React.FC<PebblingCanvasProps> = ({ 
@@ -363,6 +366,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
   onPendingImageAdded,
   saveRef,
   onSaveWorkflowToCreativeLibrary,
+  onImagePreview,
 }) => {
   // --- 画布管理状态 ---
   const [currentCanvasId, setCurrentCanvasId] = useState<string | null>(null);
@@ -6117,6 +6121,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                     imageInputCount={imageInputCount}
                     incomingConnections={connections.filter(c => c.toNode === node.id).map(c => ({ fromNode: c.fromNode, toPortKey: c.toPortKey }))}
                     klingO1Inputs={node.type === 'video' && node.data?.videoModel === 'kling-video-o1' ? resolveInputsForKlingO1(node.id).items : undefined}
+                    onImagePreview={onImagePreview}
                     onSelect={(id, multi) => {
                         const newSet = new Set(multi ? selectedNodeIds : []);
                         newSet.add(id);

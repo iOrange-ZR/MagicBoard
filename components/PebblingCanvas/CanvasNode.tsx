@@ -67,7 +67,7 @@ function parseBPPromptSegments(
   return segments;
 }
 
-/** 预览节点缩略图：进入视口后再加载，避免多图/多视频同时加载导致卡顿 */
+/** 预览节点缩略图：进入视口后再加载，避免多图/多视频同时加载导致卡顿；单击选择封面，双击打开原图预览 */
 const PreviewThumbnail = memo<{
   url: string;
   isVideo: boolean;
@@ -75,11 +75,13 @@ const PreviewThumbnail = memo<{
   isSelected: boolean;
   isLightCanvas: boolean;
   onSelect: () => void;
+  onPreviewOriginal?: (url: string) => void;
   nodeId: string;
-}>(({ url, isVideo, isSelected, isLightCanvas, onSelect, index, nodeId }) => {
+}>(({ url, isVideo, isSelected, isLightCanvas, onSelect, onPreviewOriginal, index, nodeId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -120,15 +122,39 @@ const PreviewThumbnail = memo<{
     />
   );
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    } else {
+      clickTimerRef.current = setTimeout(() => {
+        onSelect();
+        clickTimerRef.current = null;
+      }, 280);
+    }
+  };
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    onPreviewOriginal?.(url);
+  };
+
   return (
     <div
       ref={containerRef}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       className="relative rounded-lg overflow-hidden cursor-pointer flex items-center justify-center bg-black/20"
       style={{
         border: isSelected ? '2px solid #3b82f6' : `1px solid ${isLightCanvas ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
         minHeight: 60,
       }}
+      title="单击选择为封面，双击打开原图预览"
     >
       {content}
       <span className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: isLightCanvas ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.5)', color: isLightCanvas ? '#374151' : '#e5e7eb' }}>
@@ -490,6 +516,8 @@ interface CanvasNodeProps {
   creativeIdeasForImage?: Array<{ id: number; title: string; imageUrl: string }>;
   /** 可灵 O1：上游输入节点列表（图片/视频名称），用于展示与占位符索引 */
   klingO1Inputs?: KlingO1InputItem[];
+  /** 预览节点内双击缩略图时打开原图/视频全屏预览 */
+  onImagePreview?: (imageUrl: string) => void;
 }
 
 const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
@@ -515,6 +543,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
   imageInputCount = 0,
   onCreateToolNode,
   onExtractFrame,
+  onImagePreview,
   onCreateFrameExtractor,
   onExtractFrameFromExtractor,
   hasDownstream = false,
@@ -1832,6 +1861,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                                         isSelected={isSelected}
                                         isLightCanvas={isLightCanvas}
                                         onSelect={() => setCover(i)}
+                                        onPreviewOriginal={onImagePreview}
                                     />
                                 );
                             })}

@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -15,7 +15,11 @@ interface State {
 /**
  * 全局错误边界：捕获子组件树中的 JS 错误并显示在页面上，便于排查白屏问题。
  */
-export class ErrorBoundary extends Component<Props, State> {
+export class ErrorBoundary extends React.Component<Props, State> {
+  declare state: State;
+  declare props: React.PropsWithChildren<Props>;
+  declare setState: React.Component<Props, State>['setState'];
+
   constructor(props: Props) {
     super(props);
     this.state = {

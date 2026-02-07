@@ -416,7 +416,7 @@ export function parseWorkflowJsonToSlots(workflowApiJson: string): ComfyUIInputS
         let type: ComfyUIInputSlot['type'] = 'STRING';
         if (t === 'number') type = Number.isInteger(value) ? 'INT' : 'FLOAT';
         else if (t === 'boolean') type = 'BOOLEAN';
-        else if (t === 'string' && (value === '' || value.startsWith('data:') || /\.(png|jpg|jpeg|webp)$/i.test(value))) type = 'IMAGE';
+        else if (t === 'string' && (value === '' || (typeof value === 'string' && (value.startsWith('data:') || /\.(png|jpg|jpeg|webp)$/i.test(value))))) type = 'IMAGE';
         const paramLabel = getInputDisplayName(inputName);
         const slotKey = `${nodeId}_${inputName}`;
         const rawDefault = value;
