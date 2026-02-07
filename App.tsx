@@ -125,6 +125,8 @@ interface CanvasProps {
   onAddToCanvas?: (imageUrl: string, imageName?: string) => void;
   // 画布保存函数引用
   canvasSaveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  // 将画布流程保存到创意文本库
+  onSaveWorkflowToCreativeLibrary?: (idea: Omit<CreativeIdea, 'id'>) => Promise<void>;
 }
 
 // IndexedDB 相关操作已迁移到 services/db/ 目录
@@ -959,6 +961,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onClearPendingCanvasImage,
   onAddToCanvas,
   canvasSaveRef,
+  onSaveWorkflowToCreativeLibrary,
 }) => {
   const { theme, themeName } = useTheme();
   const isDark = themeName !== 'light';
@@ -1065,6 +1068,7 @@ const Canvas: React.FC<CanvasProps> = ({
           pendingImageToAdd={pendingCanvasImage}
           onPendingImageAdded={onClearPendingCanvasImage}
           saveRef={canvasSaveRef}
+          onSaveWorkflowToCreativeLibrary={onSaveWorkflowToCreativeLibrary}
         />
       </div>
 
@@ -2118,6 +2122,21 @@ const App: React.FC = () => {
       alert(`保存失败: ${e instanceof Error ? e.message : 'Unknown error'}`);
     }
   };
+
+  /** 将画布流程保存到创意文本库（画布内「保存到创意库」按钮调用） */
+  const handleSaveWorkflowToCreativeLibrary = useCallback(async (idea: Omit<CreativeIdea, 'id'>) => {
+    try {
+      const newOrder = creativeIdeas.length > 0 ? Math.max(...creativeIdeas.map(i => i.order || 0)) + 1 : 1;
+      const result = await creativeIdeasApi.createCreativeIdea({ ...idea, order: newOrder });
+      if (!result.success) {
+        throw new Error(result.error || '创建失败');
+      }
+      await loadDataFromLocal();
+    } catch (e) {
+      console.error('保存画布流程到创意库失败:', e);
+      throw e; // 由画布侧统一 alert
+    }
+  }, [creativeIdeas, loadDataFromLocal]);
 
   const handleDeleteCreativeIdea = async (id: number) => {
     try {
@@ -3751,6 +3770,7 @@ const App: React.FC = () => {
           onClearPendingCanvasImage={handleClearPendingCanvasImage}
           onAddToCanvas={handleAddToCanvas}
           canvasSaveRef={canvasSaveRef}
+          onSaveWorkflowToCreativeLibrary={handleSaveWorkflowToCreativeLibrary}
         />
         {/* 编辑器底部的批量生成UI已移除 - 图片生成功能已整合到画布的图片节点中 */}
       </div>

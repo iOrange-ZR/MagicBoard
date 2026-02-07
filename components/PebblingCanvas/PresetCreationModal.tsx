@@ -7,9 +7,28 @@ interface PresetCreationModalProps {
   selectedNodes: CanvasNode[];
   onSave: (title: string, description: string, inputs: PresetInput[]) => void;
   onCancel: () => void;
+  /** 与画布日夜模式一致 */
+  isLightCanvas?: boolean;
 }
 
-const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes, onSave, onCancel }) => {
+const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes, onSave, onCancel, isLightCanvas = false }) => {
+  const bg = isLightCanvas ? 'bg-white' : 'bg-[#1c1c1e]';
+  const border = isLightCanvas ? 'border-gray-200' : 'border-white/10';
+  const headerFooter = isLightCanvas ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-white/10';
+  const text = isLightCanvas ? 'text-gray-900' : 'text-white';
+  const textMuted = isLightCanvas ? 'text-gray-500' : 'text-zinc-500';
+  const textMuted2 = isLightCanvas ? 'text-gray-400' : 'text-zinc-600';
+  const inputBg = isLightCanvas ? 'bg-gray-100 border-gray-200' : 'bg-black/30 border-white/10';
+  const inputFocus = isLightCanvas ? 'focus:border-purple-500/50' : 'focus:border-purple-500/50';
+  const divider = isLightCanvas ? 'bg-gray-200' : 'bg-white/10';
+  const emptyBorder = isLightCanvas ? 'border-gray-200' : 'border-white/10';
+  const emptyText = isLightCanvas ? 'text-gray-500' : 'text-zinc-600';
+  const cardBg = isLightCanvas ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-transparent';
+  const cardSelected = 'bg-purple-500/10 border-purple-500/30';
+  const checkboxBorder = isLightCanvas ? 'border-gray-400 hover:border-gray-600' : 'border-zinc-600 hover:border-zinc-400';
+  const inputLabelBorder = isLightCanvas ? 'border-gray-300' : 'border-white/20';
+  const btnCancel = isLightCanvas ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-100' : 'text-zinc-400 hover:text-white hover:bg-white/5';
+  const btnClose = isLightCanvas ? 'text-gray-500 hover:text-gray-900' : 'text-zinc-500 hover:text-white';
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [potentialInputs, setPotentialInputs] = useState<PresetInput[]>([]);
@@ -81,14 +100,14 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
     >
-      <div className="w-[500px] bg-[#1c1c1e] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className={`w-[500px] ${bg} border ${border} rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}>
         
         {/* Header */}
-        <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
-            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+        <div className={`p-4 border-b ${headerFooter} flex items-center justify-between`}>
+            <h2 className={`text-sm font-bold ${text} flex items-center gap-2`}>
                 <Icons.Layers size={16} className="text-purple-400"/> 保存为画布流程
             </h2>
-            <button onClick={onCancel} className="text-zinc-500 hover:text-white"><Icons.Close size={16}/></button>
+            <button onClick={onCancel} className={btnClose}><Icons.Close size={16}/></button>
         </div>
 
         {/* Body */}
@@ -97,37 +116,37 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
             {/* Metadata */}
             <div className="space-y-3">
                 <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500">流程名称</label>
+                    <label className={`text-[10px] uppercase font-bold ${textMuted}`}>流程名称</label>
                     <input 
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         placeholder="例如：角色生成器"
-                        className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-purple-500/50"
+                        className={`w-full ${inputBg} rounded-lg p-2.5 text-sm ${text} outline-none ${inputFocus}`}
                         autoFocus
                     />
                 </div>
                 <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500">描述</label>
+                    <label className={`text-[10px] uppercase font-bold ${textMuted}`}>描述</label>
                     <textarea 
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         placeholder="这个流程做什么？"
-                        className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-xs text-zinc-300 outline-none focus:border-purple-500/50 resize-none h-20"
+                        className={`w-full ${inputBg} rounded-lg p-2.5 text-xs ${isLightCanvas ? 'text-gray-600' : 'text-zinc-300'} outline-none ${inputFocus} resize-none h-20`}
                     />
                 </div>
             </div>
 
-            <div className="h-px bg-white/10" />
+            <div className={`h-px ${divider}`} />
 
             {/* Input Configuration */}
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                    <label className="text-[10px] uppercase font-bold text-zinc-500">定义输入参数</label>
-                    <span className="text-[10px] text-zinc-600">找到 {potentialInputs.length} 个可配置输入</span>
+                    <label className={`text-[10px] uppercase font-bold ${textMuted}`}>定义输入参数</label>
+                    <span className={`text-[10px] ${textMuted2}`}>找到 {potentialInputs.length} 个可配置输入</span>
                 </div>
                 
                 {potentialInputs.length === 0 ? (
-                    <div className="p-4 rounded-xl border border-dashed border-white/10 text-center text-xs text-zinc-600 italic">
+                    <div className={`p-4 rounded-xl border border-dashed ${emptyBorder} text-center text-xs ${emptyText} italic`}>
                         所选节点中未找到可配置的文本或提示词。
                     </div>
                 ) : (
@@ -135,11 +154,11 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
                         {potentialInputs.map((input, i) => {
                             const isSelected = selectedInputIndices.has(i);
                             return (
-                                <div key={i} className={`p-3 rounded-xl border transition-all flex items-start gap-3 ${isSelected ? 'bg-purple-500/10 border-purple-500/30' : 'bg-white/5 border-transparent'}`}>
+                                <div key={i} className={`p-3 rounded-xl border transition-all flex items-start gap-3 ${isSelected ? cardSelected : cardBg}`}>
                                     <div className="pt-1">
                                         <button 
                                             onClick={() => handleToggleInput(i)}
-                                            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-purple-500 border-purple-500 text-white' : 'border-zinc-600 hover:border-zinc-400'}`}
+                                            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-purple-500 border-purple-500 text-white' : checkboxBorder}`}
                                         >
                                             {isSelected && <Icons.Check size={10} />}
                                         </button>
@@ -149,14 +168,14 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
                                             <input 
                                                 value={input.label}
                                                 onChange={(e) => handleLabelChange(i, e.target.value)}
-                                                className="w-full bg-transparent border-b border-white/20 pb-0.5 text-sm font-bold text-white outline-none focus:border-purple-400 placeholder-zinc-500"
+                                                className={`w-full bg-transparent border-b ${inputLabelBorder} pb-0.5 text-sm font-bold ${text} outline-none focus:border-purple-400 ${isLightCanvas ? 'placeholder-gray-400' : 'placeholder-zinc-500'}`}
                                                 placeholder="输入标签"
                                             />
                                         ) : (
-                                            <div className="text-sm font-medium text-zinc-400">{input.label}</div>
+                                            <div className={`text-sm font-medium ${textMuted}`}>{input.label}</div>
                                         )}
                                         
-                                        <div className="text-[10px] text-zinc-500 font-mono truncate max-w-[300px]">
+                                        <div className={`text-[10px] ${textMuted} font-mono truncate max-w-[300px]`}>
                                             原始值: "{input.defaultValue.substring(0, 50)}..."
                                         </div>
                                     </div>
@@ -169,8 +188,8 @@ const PresetCreationModal: React.FC<PresetCreationModalProps> = ({ selectedNodes
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-white/10 flex justify-end gap-2 bg-white/5">
-            <button onClick={onCancel} className="px-4 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors">
+        <div className={`p-4 border-t ${headerFooter} flex justify-end gap-2`}>
+            <button onClick={onCancel} className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors ${btnCancel}`}>
                 取消
             </button>
             <button 

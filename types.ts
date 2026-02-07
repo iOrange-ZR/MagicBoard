@@ -79,6 +79,7 @@ export interface CreativeIdea {
   workflowNodes?: WorkflowNode[]; // 工作流节点
   workflowConnections?: WorkflowConnection[]; // 工作流连接
   workflowInputs?: WorkflowInput[]; // 工作流可编辑输入
+  workflowCanvasTheme?: 'light' | 'dark'; // 保存时的画布日夜模式，应用到画布时恢复
 
   // 建议的宽高比和分辨率
   suggestedAspectRatio?: AspectRatioType;

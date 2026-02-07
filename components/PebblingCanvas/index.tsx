@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { CanvasNode, Vec2, NodeType, Connection, GenerationConfig, NodeData, CanvasPreset, PresetInput, KlingO1InputItem } from '../../types/pebblingTypes';
+import { CanvasNode, Vec2, NodeType, NodeStatus, Connection, GenerationConfig, NodeData, CanvasPreset, PresetInput, KlingO1InputItem } from '../../types/pebblingTypes';
 import { CreativeIdea, DesktopItem, DesktopFolderItem, DesktopImageItem, DesktopVideoItem, WorkflowNode, WorkflowConnection, WorkflowInput, WorkflowNodeType } from '../../types';
 import FloatingInput from './FloatingInput';
 import CanvasNodeItem from './CanvasNode';
@@ -108,32 +108,38 @@ const base64ToFile = async (imageUrl: string, filename: string = 'image.png'): P
   }
 };
 
-// 生成图片（文生图/图生图）- 自动选择API或Gemini
+// 可选：失败时通过 onError 回传错误信息，不抛错、不改变原有生成逻辑
+type ImageGenOptions = { onError?: (message: string) => void };
+
+// 生成图片（文生图/图生图）- 自动选择API或Gemini；失败时返回 null，可选 onError 回传错误信息
 const generateCreativeImage = async (
-  prompt: string, 
+  prompt: string,
   config?: GenerationConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: ImageGenOptions
 ): Promise<string | null> => {
   try {
     const imageConfig: ImageEditConfig = {
       aspectRatio: config?.aspectRatio || '1:1',
       imageSize: config?.resolution || '1K',
     };
-    // 使用统一的 editImageWithGemini，它会自动判断用哪个API
     const result = await editImageWithGemini([], prompt, imageConfig);
     return result.imageUrl;
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    options?.onError?.(msg);
     console.error('文生图失败:', e);
     return null;
   }
 };
 
-// 编辑图片（图生图）- 自动选择API或Gemini
+// 编辑图片（图生图）- 自动选择API或Gemini；失败时返回 null，可选 onError 回传错误信息
 const editCreativeImage = async (
   images: string[],
   prompt: string,
   config?: GenerationConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: ImageGenOptions
 ): Promise<string | null> => {
   try {
     console.log('[editCreativeImage] 开始处理, 输入图片数量:', images.length);
@@ -144,39 +150,33 @@ const editCreativeImage = async (
       isHttpUrl: img.startsWith('http'),
       isLocalPath: img.startsWith('/files/')
     })));
-    
-    // 转换所有图片为File对象
+
     const files = await Promise.all(images.map(async (img, i) => {
       try {
         const file = await base64ToFile(img, `input_${i}.png`);
-        console.log(`[editCreativeImage] 图片 ${i + 1} 转换成功:`, {
-          name: file.name,
-          size: file.size,
-          type: file.type
-        });
+        console.log(`[editCreativeImage] 图片 ${i + 1} 转换成功:`, { name: file.name, size: file.size, type: file.type });
         return file;
       } catch (err) {
         console.error(`[editCreativeImage] 图片 ${i + 1} 转换失败:`, err);
         throw err;
       }
     }));
-    
-    // 检查是否所有文件都有效
+
     const validFiles = files.filter(f => f.size > 0);
     console.log(`[editCreativeImage] 有效文件数: ${validFiles.length}/${files.length}`);
-    
     if (validFiles.length === 0 && images.length > 0) {
       console.error('[editCreativeImage] 所有图片转换失败，退化为文生图');
     }
-    
+
     const imageConfig: ImageEditConfig = {
       aspectRatio: config?.aspectRatio || 'Auto',
       imageSize: config?.resolution || '1K',
     };
-    // 使用统一的 editImageWithGemini，它会自动判断用哪个API
     const result = await editImageWithGemini(validFiles, prompt, imageConfig);
     return result.imageUrl;
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    options?.onError?.(msg);
     console.error('图生图失败:', e);
     return null;
   }
@@ -1427,11 +1427,20 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
     return s;
   }, []);
 
-  // 应用创意库到画布（从右侧创意库面板调用）
+  // 与左侧边栏一致：当前视野中心（画布坐标），用于创意库/素材库放置
+  const getViewCenter = useCallback((): { x: number; y: number } => {
+    const container = containerRef.current;
+    const viewWidth = container ? container.clientWidth : window.innerWidth;
+    const viewHeight = container ? container.clientHeight : window.innerHeight;
+    return {
+      x: (-canvasOffset.x + viewWidth / 2) / scale,
+      y: (-canvasOffset.y + viewHeight / 2) / scale,
+    };
+  }, [canvasOffset, scale]);
+
+  // 应用创意库到画布（从右侧创意库面板调用），放置位置与左侧边栏一致：视野中心
   const handleApplyCreativeIdea = useCallback((idea: CreativeIdea) => {
-    const baseX = -canvasOffset.x / scale + 200;
-    const baseY = -canvasOffset.y / scale + 100;
-    
+    const { x: viewCenterX, y: viewCenterY } = getViewCenter();
     setHasUnsavedChanges(true);
 
     // 画布流程保存时的日夜模式：应用到画布时同步全局主题
@@ -1439,35 +1448,46 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       setTheme(idea.workflowCanvasTheme);
     }
     
-    if (idea.isWorkflow && idea.workflowNodes && idea.workflowConnections) {
-      const offsetX = canvasOffset.x + 200;
-      const offsetY = canvasOffset.y + 100;
-      const newNodes = idea.workflowNodes.map(n => ({
+    // 画布流程：有 workflowNodes 即应用，整组以视野中心放置（与 PresetInstantiationModal / 左侧边栏一致）
+    if (idea.isWorkflow && idea.workflowNodes && idea.workflowNodes.length > 0) {
+      const nodesList = idea.workflowNodes;
+      const minX = Math.min(...nodesList.map(n => n.x));
+      const minY = Math.min(...nodesList.map(n => n.y));
+      const maxX = Math.max(...nodesList.map(n => n.x + (n.width ?? 300)));
+      const maxY = Math.max(...nodesList.map(n => n.y + (n.height ?? 200)));
+      const workflowCenterX = (minX + maxX) / 2;
+      const workflowCenterY = (minY + maxY) / 2;
+      const offsetX = viewCenterX - workflowCenterX;
+      const offsetY = viewCenterY - workflowCenterY;
+      const conns = idea.workflowConnections || [];
+      const newNodes = nodesList.map(n => ({
         ...n,
         id: `${n.id}_${Date.now()}`,
         x: n.x + offsetX,
         y: n.y + offsetY,
+        status: 'idle' as NodeStatus,
       }));
-      const idMapping = new Map(idea.workflowNodes.map((n, i) => [n.id, newNodes[i].id]));
-      const newConns = idea.workflowConnections.map(c => ({
+      const idMapping = new Map(nodesList.map((n, i) => [n.id, newNodes[i].id]));
+      const newConns = conns.map(c => ({
         ...c,
         id: `${c.id}_${Date.now()}`,
-        fromNode: idMapping.get(c.fromNode) || c.fromNode,
-        toNode: idMapping.get(c.toNode) || c.toNode,
+        fromNode: idMapping.get(c.fromNode) ?? c.fromNode,
+        toNode: idMapping.get(c.toNode) ?? c.toNode,
       }));
       setNodes(prev => [...prev, ...newNodes] as CanvasNode[]);
       setConnections(prev => [...prev, ...newConns]);
     } else if (idea.isBP && idea.bpFields) {
+      const w = 320, h = 300;
       const bpNodeId = `bp_${Date.now()}`;
       const bpNode: CanvasNode = {
         id: bpNodeId,
         type: 'bp' as NodeType,
         title: idea.title,
         content: '',
-        x: baseX,
-        y: baseY,
-        width: 320,
-        height: 300,
+        x: viewCenterX - w / 2,
+        y: viewCenterY - h / 2,
+        width: w,
+        height: h,
         data: {
           bpTemplate: {
             id: idea.id,
@@ -1485,22 +1505,23 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       };
       setNodes(prev => [...prev, bpNode]);
     } else {
-      // 非BP创意：创建text节点承载提示词
+      // 非BP创意：创建text节点承载提示词，居中于视野
+      const w = 280, h = 280;
       const textId = `text_${Date.now()}`;
       const textNode: CanvasNode = {
         id: textId,
         type: 'text' as NodeType,
         title: idea.title,
         content: idea.prompt,
-        x: baseX,
-        y: baseY,
-        width: 280,
-        height: 280,
+        x: viewCenterX - w / 2,
+        y: viewCenterY - h / 2,
+        width: w,
+        height: h,
         data: {},
       };
       setNodes(prev => [...prev, textNode]);
     }
-  }, [canvasOffset, scale]);
+  }, [getViewCenter, setTheme]);
 
   // 更新节点 settings（从 ImageGenPanel 调用）
   const handleUpdateNodeSettings = useCallback((nodeId: string, settings: { aspectRatio?: string; resolution?: string }) => {
@@ -1865,13 +1886,11 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       return newNode;
   };
 
-  // 点击素材库项在画布上放置节点（与创意文本库点击放置一致）
+  // 点击素材库项在画布上放置节点（与左侧边栏一致：不传 position，由 addNode 在视野中心找空白位置）
   const handleApplyMediaItem = useCallback((type: 'image' | 'video-output', url: string, name?: string) => {
-    const baseX = -canvasOffset.x / scale + 200;
-    const baseY = -canvasOffset.y / scale + 100;
     setHasUnsavedChanges(true);
-    addNode(type, url, { x: baseX, y: baseY }, name);
-  }, [canvasOffset, scale]);
+    addNode(type, url, undefined, name);
+  }, []);
 
   // 处理从桌面添加图片到画布 - 使用 ref 避免闭包问题
   const pendingImageRef = useRef<{ imageUrl: string; imageName?: string } | null>(null);
@@ -2026,9 +2045,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       const inputNodes = inputConnections
           .map(c => nodesRef.current.find(n => n.id === c.fromNode))
           .filter((n): n is CanvasNode => !!n);
-      
-      // Sort by Y for deterministic order
-      inputNodes.sort((a, b) => a.y - b.y);
+      // 与可灵 O1 一致：保持连接顺序（先连的在前，后连的在后），不按 Y 排序，确保图片节点与 O1 的展示及 API 传参顺序一致
 
       let images: string[] = [];
       let texts: string[] = [];
@@ -2143,7 +2160,7 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       return { images, texts };
   };
 
-  /** 可灵 O1：解析直接连入的图片/视频上游，返回有序的 images、videos、items（含节点名称），不递归。按连接顺序排列，新加入的素材在后面。约束：至多 7 张图或 1 视频+4 张图。 */
+  /** 可灵 O1：解析直接连入的图片/视频上游，返回有序的 images、videos、items（含节点名称），不递归。按连接顺序排列（与 resolveInputs 一致，确保与图片节点展示及 API 传参顺序一致），新加入的素材在后面。约束：至多 7 张图或 1 视频+4 张图。 */
   const resolveInputsForKlingO1 = (nodeId: string): { images: string[]; videos: string[]; items: KlingO1InputItem[] } => {
       const inputConnections = connectionsRef.current.filter(c => c.toNode === nodeId);
       const inputNodes = inputConnections
@@ -2293,25 +2310,35 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           const abortController = new AbortController();
           abortControllersRef.current.set(nodeId, abortController);
           const signal = abortController.signal;
+          let genError: string | null = null;
+          const onError = (msg: string) => { genError = msg; };
           try {
               let result: string | null = null;
               const aspectRatio = sourceNode.data?.settings?.aspectRatio || 'AUTO';
               const resolution = sourceNode.data?.settings?.resolution || '1K';
               if (hasPrompt && !hasImage) {
-                  result = await generateCreativeImage(combinedPrompt, aspectRatio !== 'AUTO' ? { aspectRatio, resolution } : { aspectRatio: '1:1', resolution }, signal);
+                  result = await generateCreativeImage(combinedPrompt, aspectRatio !== 'AUTO' ? { aspectRatio, resolution } : { aspectRatio: '1:1', resolution }, signal, { onError });
               } else if (hasPrompt && hasImage) {
                   const config = aspectRatio === 'AUTO' ? (resolution !== 'AUTO' && resolution !== '1K' ? { resolution } : undefined) : { aspectRatio, resolution: resolution !== 'AUTO' ? resolution : '1K' };
-                  result = await editCreativeImage(imageSource, combinedPrompt, config, signal);
+                  result = await editCreativeImage(imageSource, combinedPrompt, config, signal, { onError });
               } else {
                   result = imageSource[0];
               }
               if (!signal.aborted) {
-                  updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
-                  // 与单张逻辑一致：每生成一张就保存到素材库一张
+                  const node = nodesRef.current.find(n => n.id === nodeId);
+                  updateNode(nodeId, {
+                    content: result || '',
+                    status: result ? 'completed' : 'error',
+                    ...(result ? {} : { data: { ...node?.data, error: genError || '生成未返回结果' } })
+                  });
                   if (result && onImageGenerated) onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
               }
           } catch (err) {
-              if (!signal.aborted) updateNode(nodeId, { status: 'error' });
+              if (!signal.aborted) {
+                  const node = nodesRef.current.find(n => n.id === nodeId);
+                  const errMsg = err instanceof Error ? err.message : String(err);
+                  updateNode(nodeId, { status: 'error', data: { ...node?.data, error: errMsg } });
+              }
           } finally {
               abortControllersRef.current.delete(nodeId);
           }
@@ -2487,22 +2514,33 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
           abortControllersRef.current.set(nodeId, abortController);
           const signal = abortController.signal;
           try {
+              let genError: string | null = null;
+              const onError = (msg: string) => { genError = msg; };
               let result: string | null = null;
               const aspectRatio = settings.aspectRatio || 'AUTO';
               const resolution = settings.resolution || '2K';
               let config: GenerationConfig | undefined = undefined;
               if (inputImages.length > 0) {
                   if (aspectRatio === 'AUTO') config = { resolution }; else config = { aspectRatio, resolution };
-                  result = await editCreativeImage(inputImages, finalPrompt, config, signal);
+                  result = await editCreativeImage(inputImages, finalPrompt, config, signal, { onError });
               } else {
                   config = aspectRatio !== 'AUTO' ? { aspectRatio, resolution } : { aspectRatio: '1:1', resolution };
-                  result = await generateCreativeImage(finalPrompt, config, signal);
+                  result = await generateCreativeImage(finalPrompt, config, signal, { onError });
               }
               if (!signal.aborted) {
-                  updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
+                  const node = nodesRef.current.find(n => n.id === nodeId);
+                  updateNode(nodeId, {
+                    content: result || '',
+                    status: result ? 'completed' : 'error',
+                    ...(result ? {} : { data: { ...node?.data, error: genError || '生成未返回结果' } })
+                  });
               }
           } catch (err) {
-              if (!signal.aborted) updateNode(nodeId, { status: 'error' });
+              if (!signal.aborted) {
+                  const node = nodesRef.current.find(n => n.id === nodeId);
+                  const errMsg = err instanceof Error ? err.message : String(err);
+                  updateNode(nodeId, { status: 'error', data: { ...node?.data, error: errMsg } });
+              }
           } finally {
               abortControllersRef.current.delete(nodeId);
           }
@@ -3217,26 +3255,25 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       updateNode(nodeId, { status: 'completed' });
                   } else {
                       console.error('[Image节点] ❌ 执行失败：无提示词且无图片，content:', node.content);
-                      updateNode(nodeId, { status: 'error' });
+                      updateNode(nodeId, { status: 'error', data: { ...node.data, error: '无提示词且无图片' } });
                   }
               } else if (combinedPrompt && imageSource.length === 0) {
                   // 有prompt + 无图片 = 文生图
-                  // 使用effectiveSettings（合并后的设置）
                   const imgAspectRatio = effectiveSettings.aspectRatio || 'AUTO';
                   const imgResolution = effectiveSettings.resolution || '2K';
-                  const imgConfig = imgAspectRatio !== 'AUTO' 
+                  const imgConfig = imgAspectRatio !== 'AUTO'
                       ? { aspectRatio: imgAspectRatio, resolution: imgResolution as '1K' | '2K' | '4K' }
-                      : { aspectRatio: '1:1', resolution: imgResolution as '1K' | '2K' | '4K' }; // 文生图默认1:1
-                  
-                  const result = await generateCreativeImage(combinedPrompt, imgConfig, signal);
+                      : { aspectRatio: '1:1', resolution: imgResolution as '1K' | '2K' | '4K' };
+                  let genError: string | null = null;
+                  const result = await generateCreativeImage(combinedPrompt, imgConfig, signal, { onError: (m) => { genError = m; } });
                   if (!signal.aborted) {
-                      updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
-                      // 立即保存画布（避免切换TAB时数据丢失）
+                      updateNode(nodeId, {
+                        content: result || '',
+                        status: result ? 'completed' : 'error',
+                        ...(result ? {} : { data: { ...node.data, error: genError || '生成未返回结果' } })
+                      });
                       saveCurrentCanvas();
-                      // 同步到桌面
-                      if (result && onImageGenerated) {
-                          onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
-                      }
+                      if (result && onImageGenerated) onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
                   }
               } else if (!combinedPrompt && imageSource.length > 0) {
                   // 无prompt + 有图片 = 传递图片（容器模式）
@@ -3264,15 +3301,16 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                   }
                   
                   console.log('[Image节点] 图生图配置:', { imgAspectRatio, imgResolution, imgConfig });
-                  const result = await editCreativeImage(imageSource, combinedPrompt, imgConfig, signal);
+                  let genError: string | null = null;
+                  const result = await editCreativeImage(imageSource, combinedPrompt, imgConfig, signal, { onError: (m) => { genError = m; } });
                   if (!signal.aborted) {
-                      updateNode(nodeId, { content: result || '', status: result ? 'completed' : 'error' });
-                      // 立即保存画布（避免切换TAB时数据丢失）
+                      updateNode(nodeId, {
+                        content: result || '',
+                        status: result ? 'completed' : 'error',
+                        ...(result ? {} : { data: { ...node.data, error: genError || '生成未返回结果' } })
+                      });
                       saveCurrentCanvas();
-                      // 同步到桌面
-                      if (result && onImageGenerated) {
-                          onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
-                      }
+                      if (result && onImageGenerated) onImageGenerated(result, combinedPrompt, currentCanvasId || undefined, canvasName);
                   }
               }
           }
@@ -3343,47 +3381,43 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                          
                // 调用API
                try {
+                   let genError: string | null = null;
+                   const onError = (m: string) => { genError = m; };
                    let result: string | null = null;
-                             
+
                    if (!combinedPrompt && inputImages.length === 0) {
                        console.warn('[Magic] 无prompt且无图片，无法执行');
                        updateNode(outputNodeId, { status: 'error' });
                        updateNode(nodeId, { status: 'error' });
                        return;
                    } else if (combinedPrompt && inputImages.length === 0) {
-                       result = await generateCreativeImage(combinedPrompt, finalConfig, signal);
+                       result = await generateCreativeImage(combinedPrompt, finalConfig, signal, { onError });
                    } else if (!combinedPrompt && inputImages.length > 0) {
                        result = inputImages[0];
                        updateNode(nodeId, { status: 'completed' });
                    } else {
-                       result = await editCreativeImage(inputImages, combinedPrompt, finalConfig, signal);
+                       result = await editCreativeImage(inputImages, combinedPrompt, finalConfig, signal, { onError });
                    }
-                             
+
                    if (!signal.aborted) {
                        if (result) {
                            console.log(`[Magic] API返回成功,更新输出节点内容`);
                            const metadata = await extractImageMetadata(result);
-                           updateNode(outputNodeId, { 
-                               content: result,
-                               status: 'completed',
-                               data: { imageMetadata: metadata }
-                           });
+                           updateNode(outputNodeId, { content: result, status: 'completed', data: { imageMetadata: metadata } });
                            updateNode(nodeId, { status: 'completed' });
-                           
-                           // 同步到桌面对应画布文件夹
                            if (onImageGenerated) onImageGenerated(result, 'Magic结果', currentCanvasId || undefined, canvasName);
-                           
-                           // 🔧 保存画布
                            saveCurrentCanvas();
                        } else {
-                           updateNode(outputNodeId, { status: 'error' });
-                           updateNode(nodeId, { status: 'error' });
+                           const errTip = genError || '生成未返回结果';
+                           updateNode(outputNodeId, { status: 'error', data: { error: errTip } });
+                           updateNode(nodeId, { status: 'error', data: { ...node.data, error: errTip } });
                        }
                    }
                } catch (error) {
                    console.error('[Magic] 执行失败:', error);
-                   updateNode(outputNodeId, { status: 'error' });
-                   updateNode(nodeId, { status: 'error' });
+                   const errMsg = error instanceof Error ? error.message : String(error);
+                   updateNode(outputNodeId, { status: 'error', data: { error: errMsg } });
+                   updateNode(nodeId, { status: 'error', data: { ...node.data, error: errMsg } });
                }
           }
           else if (node.type === 'video') {
@@ -4071,29 +4105,26 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       const settings = node.data?.settings || {};
                       const aspectRatio = settings.aspectRatio || 'AUTO';
                       const resolution = settings.resolution || '2K';
-                      
+
+                      let genError: string | null = null;
+                      const onError = (m: string) => { genError = m; };
                       let result: string | null = null;
                       if (inputImages.length > 0) {
-                          // 有输入图片 = 图生图
                           let config: GenerationConfig | undefined = undefined;
                           if (aspectRatio === 'AUTO') {
-                              // AUTO 模式：只传 resolution（如果不是默认值）
-                              if (resolution !== 'AUTO' && resolution !== '1K') {
-                                  config = { resolution: resolution as '1K' | '2K' | '4K' };
-                              }
+                              if (resolution !== 'AUTO' && resolution !== '1K') config = { resolution: resolution as '1K' | '2K' | '4K' };
                           } else {
                               config = { aspectRatio, resolution: resolution as '1K' | '2K' | '4K' };
                           }
                           console.log('[BP节点] 调用图生图 API, 配置:', { aspectRatio, resolution, config });
-                          result = await editCreativeImage(inputImages, finalPrompt, config, signal);
+                          result = await editCreativeImage(inputImages, finalPrompt, config, signal, { onError });
                       } else {
-                          // 无输入图片 = 文生图
                           const config: GenerationConfig = {
                               aspectRatio: aspectRatio !== 'AUTO' ? aspectRatio : '1:1',
                               resolution: resolution as '1K' | '2K' | '4K'
                           };
                           console.log('[BP节点] 调用文生图 API, 配置:', config);
-                          result = await generateCreativeImage(finalPrompt, config, signal);
+                          result = await generateCreativeImage(finalPrompt, config, signal, { onError });
                       }
                       
                       console.log('[BP节点] API返回结果:', result ? `有图片 (${result.slice(0,50)}...)` : 'null');
@@ -4101,21 +4132,17 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       if (!signal.aborted) {
                           // 检查是否有下游连接
                           const hasDownstream = connectionsRef.current.some(c => c.fromNode === nodeId);
-                          console.log('[BP节点] 有下游连接:', hasDownstream);
-                          
+                          const errTip = genError || '生成未返回结果';
                           if (hasDownstream) {
-                              // 有下游连接：结果存到 data.output，保持节点原貌
-                              console.log('[BP节点] 有下游，结果存到 data.output');
                               updateNode(nodeId, {
-                                  data: { ...node.data, output: result || '' },
+                                  data: { ...node.data, output: result || '', ...(result ? {} : { error: errTip }) },
                                   status: result ? 'completed' : 'error'
                               });
                           } else {
-                              // 无下游连接：结果存到 content，显示图片
-                              console.log('[BP节点] 无下游，结果存到 content');
                               updateNode(nodeId, {
                                   content: result || '',
-                                  status: result ? 'completed' : 'error'
+                                  status: result ? 'completed' : 'error',
+                                  ...(result ? {} : { data: { ...node.data, error: errTip } })
                               });
                           }
                           
@@ -4129,7 +4156,8 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
                       }
                   } catch (err) {
                       console.error('BP节点执行失败:', err);
-                      updateNode(nodeId, { status: 'error' });
+                      const errMsg = err instanceof Error ? err.message : String(err);
+                      updateNode(nodeId, { status: 'error', data: { ...node.data, error: errMsg } });
                   }
               }
           }
@@ -5583,26 +5611,30 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
       
       updateNode(newNode.id, { status: 'running' });
 
+      let genError: string | null = null;
+      const onError = (m: string) => { genError = m; };
       try {
           if (type === 'image') {
-               const result = await generateCreativeImage(prompt, config);
-               updateNode(newNode.id, { content: result || '', status: result ? 'completed' : 'error' });
-               // 同步到桌面
-               if (result && onImageGenerated) {
-                   onImageGenerated(result, prompt, currentCanvasId || undefined, canvasName);
-               }
-          } 
-          else if (type === 'edit') {
-               const result = await editCreativeImage(base64Files, prompt, config);
-               updateNode(newNode.id, { content: result || '', status: result ? 'completed' : 'error' });
-               // 同步到桌面
-               if (result && onImageGenerated) {
-                   onImageGenerated(result, prompt, currentCanvasId || undefined, canvasName);
-               }
+              const result = await generateCreativeImage(prompt, config, undefined, { onError });
+              updateNode(newNode.id, {
+                content: result || '',
+                status: result ? 'completed' : 'error',
+                ...(result ? {} : { data: { ...newNode.data, error: genError || '生成未返回结果' } })
+              });
+              if (result && onImageGenerated) onImageGenerated(result, prompt, currentCanvasId || undefined, canvasName);
+          } else if (type === 'edit') {
+              const result = await editCreativeImage(base64Files, prompt, config, undefined, { onError });
+              updateNode(newNode.id, {
+                content: result || '',
+                status: result ? 'completed' : 'error',
+                ...(result ? {} : { data: { ...newNode.data, error: genError || '生成未返回结果' } })
+              });
+              if (result && onImageGenerated) onImageGenerated(result, prompt, currentCanvasId || undefined, canvasName);
           }
-      } catch(e) {
+      } catch (e) {
           console.error('[FloatingInput] 生成失败:', e);
-          updateNode(newNode.id, { status: 'error' });
+          const errMsg = e instanceof Error ? e.message : String(e);
+          updateNode(newNode.id, { status: 'error', data: { ...newNode.data, error: errMsg } });
       } finally {
           setIsGenerating(false);
       }
@@ -6896,23 +6928,43 @@ const PebblingCanvas: React.FC<PebblingCanvasProps> = ({
 
       {/* Modals */}
       {showPresetModal && (
-          <PresetCreationModal 
+          <PresetCreationModal
              selectedNodes={nodesForPreset}
+             isLightCanvas={isLightCanvas}
              onCancel={() => setShowPresetModal(false)}
-             onSave={(title, desc, inputs) => {
+             onSave={async (title, desc, inputs) => {
+                 const nodeIdsSet = new Set(nodesForPreset.map(n => n.id));
+                 const presetConns = connections.filter(c => nodeIdsSet.has(c.fromNode) && nodeIdsSet.has(c.toNode));
                  const newPreset: CanvasPreset = {
                      id: uuid(),
                      title,
                      description: desc,
-                     nodes: JSON.parse(JSON.stringify(nodesForPreset)), // Deep copy
-                     connections: connections.filter(c => {
-                         const nodeIds = new Set(nodesForPreset.map(n => n.id));
-                         return nodeIds.has(c.fromNode) && nodeIds.has(c.toNode);
-                     }),
+                     nodes: JSON.parse(JSON.stringify(nodesForPreset)),
+                     connections: presetConns,
                      inputs
                  };
                  setUserPresets(prev => [...prev, newPreset]);
                  setShowPresetModal(false);
+
+                 // 同步保存到创意文本库（画布流程条目），便于在创意库中复用
+                 if (onSaveWorkflowToCreativeLibrary) {
+                     try {
+                         const workflowIdea: Omit<CreativeIdea, 'id'> = {
+                             title,
+                             prompt: desc || title,
+                             imageUrl: '',
+                             isWorkflow: true,
+                             workflowNodes: nodesForPreset.map(n => canvasNodeToWorkflowNode(n)),
+                             workflowConnections: presetConns.map(c => ({ id: c.id, fromNode: c.fromNode, toNode: c.toNode })),
+                             workflowInputs: inputs.map(inp => ({ nodeId: inp.nodeId, field: inp.field, label: inp.label, defaultValue: inp.defaultValue })),
+                             workflowCanvasTheme: themeName,
+                         };
+                         await onSaveWorkflowToCreativeLibrary(workflowIdea);
+                     } catch (e) {
+                         console.error('保存画布流程到创意库失败:', e);
+                         alert(`保存到创意库失败: ${e instanceof Error ? e.message : '未知错误'}`);
+                     }
+                 }
              }}
           />
       )}

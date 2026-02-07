@@ -188,6 +188,8 @@ export const editImageWithThirdPartyApi = async (
     }
   }
 
+  const serverErrorHint = '请检查服务商接口是否正常。';
+
   // 直接调用API
   const url = `${thirdPartyConfig.baseUrl.replace(/\/$/, '')}/v1/images/generations`;
   
@@ -203,17 +205,29 @@ export const editImageWithThirdPartyApi = async (
     
     if (!res.ok) {
       const errorText = await res.text();
-      throw new Error(`API 请求失败 (${res.status}): ${errorText}`);
+      let msg = `API 请求失败 (${res.status}): ${errorText}`;
+      try {
+        const body = JSON.parse(errorText) as { error?: { message?: string; code?: string } };
+        const errMsg = body?.error?.message ?? '';
+        const errCode = body?.error?.code ?? '';
+        const isServerError = res.status >= 500 || /500|internal server error|do_request_failed/i.test(errMsg + errCode);
+        if (isServerError) msg = (errMsg || `请求失败 (${res.status})`) + ' ' + serverErrorHint;
+      } catch {
+        if (res.status >= 500) msg = `服务器错误 (${res.status})，${serverErrorHint}`;
+      }
+      throw new Error(msg);
     }
     
-    return res.json() as Promise<NanoBananaResponse>;
+    return res.json() as Promise<NanoBananaResponse & { error?: { message?: string; code?: string } }>;
   });
   
   // 解析响应
   const result: GeneratedContent = { text: null, imageUrl: null };
   
   if (response.error) {
-    throw new Error(`API 错误: ${response.error.message}`);
+    const errMsg = response.error.message || 'API 错误';
+    const isServerError = /500|internal server error|do_request_failed/i.test(errMsg + (response.error as { code?: string }).code);
+    throw new Error(isServerError ? `${errMsg} ${serverErrorHint}` : `API 错误: ${errMsg}`);
   }
   
   if (response.data && response.data.length > 0) {

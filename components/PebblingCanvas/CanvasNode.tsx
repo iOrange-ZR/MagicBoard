@@ -264,6 +264,16 @@ function errorToDisplayMessage(e: unknown): string {
   return String(e);
 }
 
+/** 用于图片/视频生成节点：若为服务器类错误则追加「请检查服务商接口是否正常」提示 */
+function formatGenerationNodeError(e: unknown): string {
+  const msg = errorToDisplayMessage(e);
+  if (!msg) return msg;
+  const isServerError = /500|internal server error|do_request_failed|服务器错误|请求失败\s*\(\s*5\d{2}\s*\)/i.test(msg);
+  const hasHint = /检查服务商|接口是否正常/i.test(msg);
+  if (isServerError && !hasHint) return msg + ' 请检查服务商接口是否正常。';
+  return msg;
+}
+
 // 动态导入 3D 组件以避免影响初始加载
 const MultiAngle3D = lazy(() => import('./MultiAngle3D'));
 
@@ -1542,7 +1552,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
         const footerText = previewRunning
             ? progressText
             : previewError
-                ? (node.data?.error ? errorToDisplayMessage(node.data.error) : '生成失败')
+                ? (node.data?.error ? formatGenerationNodeError(node.data.error) : '生成失败')
                 : previewItems.length > 0
                     ? `已完成 ${previewItems.length} 张`
                     : '暂无预览';
@@ -1561,7 +1571,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         <div className="w-full h-full flex flex-col items-center justify-center rounded-lg p-3 text-center" style={{ backgroundColor: isLightCanvas ? 'rgba(254,202,202,0.15)' : 'rgba(254,202,202,0.1)' }}>
                             <span className="text-[10px] text-red-400 font-medium">生成失败</span>
                             {node.data?.error && (
-                                <span className="text-[9px] mt-1 break-words max-w-full" style={{ color: themeColors.textMuted }}>{errorToDisplayMessage(node.data.error)}</span>
+                                <span className="text-[9px] mt-1 break-words max-w-full" style={{ color: themeColors.textMuted }}>{formatGenerationNodeError(node.data.error)}</span>
                             )}
                         </div>
                     ) : (
@@ -3309,35 +3319,44 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
           }}
         >
            {!hasImage ? (
-               // 空状态：显示上传按钮和prompt输入
+               // 空状态：显示上传按钮和prompt输入（或生成失败时的错误信息）
                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2" style={{ color: themeColors.textMuted }}>
-                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isLightCanvas ? 'bg-gray-100' : 'bg-white/5'}`}>
-                      <Icons.Image size={18} className={isLightCanvas ? 'text-gray-400' : 'text-zinc-500'} />
-                   </div>
-                   <div className={`text-[9px] font-medium uppercase tracking-widest text-center ${isLightCanvas ? 'text-gray-500' : 'text-zinc-600'}`}>
-                       上传或输入提示词
-                   </div>
-                   <button 
-                     className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[10px] px-2 py-1 rounded-full flex items-center gap-1 border border-blue-500/20 transition-colors"
-                     onClick={() => fileInputRef.current?.click()}
-                     onMouseDown={(e) => e.stopPropagation()} 
-                   >
-                       <Icons.Upload size={10} /> 上传
-                   </button>
-                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
-                   
-                   {/* Prompt Input */}
-                   <div className="absolute bottom-2 left-2 right-2">
-                      <textarea 
-                          className={`w-full rounded-lg p-2 text-[10px] outline-none resize-none transition-colors ${isLightCanvas ? 'bg-gray-100 border border-gray-200 text-gray-700 placeholder-gray-400 focus:border-blue-400' : 'bg-black/50 border border-white/10 text-zinc-300 placeholder-zinc-600 focus:border-blue-500/50 focus:text-white'}`}
-                          placeholder="输入描述文生图..."
-                          value={localPrompt}
-                          onChange={(e) => setLocalPrompt(e.target.value)}
-                          onBlur={handleUpdate}
-                          onMouseDown={handleInputAreaMouseDown}
-                          rows={2}
-                      />
-                   </div>
+                   {node.status === 'error' && node.data?.error ? (
+                     <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-2 rounded-lg max-w-full" style={{ backgroundColor: isLightCanvas ? 'rgba(254,202,202,0.2)' : 'rgba(254,202,202,0.1)' }}>
+                       <span className="text-[10px] text-red-400 font-medium">生成失败</span>
+                       <span className="text-[9px] text-center break-words max-w-full" style={{ color: themeColors.textMuted }}>{formatGenerationNodeError(node.data.error)}</span>
+                     </div>
+                   ) : (
+                     <>
+                       <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isLightCanvas ? 'bg-gray-100' : 'bg-white/5'}`}>
+                          <Icons.Image size={18} className={isLightCanvas ? 'text-gray-400' : 'text-zinc-500'} />
+                       </div>
+                       <div className={`text-[9px] font-medium uppercase tracking-widest text-center ${isLightCanvas ? 'text-gray-500' : 'text-zinc-600'}`}>
+                           上传或输入提示词
+                       </div>
+                       <button 
+                         className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[10px] px-2 py-1 rounded-full flex items-center gap-1 border border-blue-500/20 transition-colors"
+                         onClick={() => fileInputRef.current?.click()}
+                         onMouseDown={(e) => e.stopPropagation()} 
+                       >
+                           <Icons.Upload size={10} /> 上传
+                       </button>
+                       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+                       
+                       {/* Prompt Input */}
+                       <div className="absolute bottom-2 left-2 right-2">
+                          <textarea 
+                              className={`w-full rounded-lg p-2 text-[10px] outline-none resize-none transition-colors ${isLightCanvas ? 'bg-gray-100 border border-gray-200 text-gray-700 placeholder-gray-400 focus:border-blue-400' : 'bg-black/50 border border-white/10 text-zinc-300 placeholder-zinc-600 focus:border-blue-500/50 focus:text-white'}`}
+                              placeholder="输入描述文生图..."
+                              value={localPrompt}
+                              onChange={(e) => setLocalPrompt(e.target.value)}
+                              onBlur={handleUpdate}
+                              onMouseDown={handleInputAreaMouseDown}
+                              rows={2}
+                          />
+                       </div>
+                     </>
+                   )}
                </div>
            ) : (
              // 有图片状态：只显示图片，不显示提示词输入框
@@ -3976,7 +3995,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             
                             {node.data?.videoTaskStatus === 'FAILURE' && node.data?.videoFailReason && (
                                 <div className="max-w-[200px] text-center">
-                                    <span className="text-[8px] text-red-400 block">{errorToDisplayMessage(node.data.videoFailReason)}</span>
+                                    <span className="text-[8px] text-red-400 block">{formatGenerationNodeError(node.data.videoFailReason)}</span>
                                 </div>
                             )}
                             
@@ -4176,7 +4195,7 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                         {node.data?.videoFailReason && (
                             <span className="text-[9px] text-red-400/70 text-center px-2 max-w-full break-words">
                                 {(() => {
-                                    const msg = errorToDisplayMessage(node.data.videoFailReason);
+                                    const msg = formatGenerationNodeError(node.data.videoFailReason);
                                     return msg.length > 80 ? msg.slice(0, 80) + '...' : msg;
                                 })()}
                             </span>
