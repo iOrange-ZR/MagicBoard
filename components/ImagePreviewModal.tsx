@@ -15,6 +15,12 @@ interface ImagePreviewModalProps {
 }
 
 export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, onClose }) => {
+  // 无效 URL 时直接关闭，避免卡住或白屏
+  const effectiveUrl = (imageUrl && imageUrl.trim()) || '';
+  useEffect(() => {
+    if (!effectiveUrl) onClose();
+  }, [effectiveUrl, onClose]);
+
   // ESC 键关闭 - 使用 capture 模式确保优先捕获
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -24,17 +30,22 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
         onClose();
       }
     };
-    // 使用 capture 阶段确保模态框优先处理 ESC
     window.addEventListener('keydown', handleKeyDown, true);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true);
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [onClose]);
 
   const [transform, setTransform] = useState({ scale: 1, posX: 0, posY: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [imageError, setImageError] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  // URL 变化时重置错误与缩放，避免上一张失败状态影响下一张
+  useEffect(() => {
+    setImageError(false);
+    setVideoError(false);
+    setTransform({ scale: 1, posX: 0, posY: 0 });
+  }, [effectiveUrl]);
 
   const handleZoomIn = () => setTransform(t => ({...t, scale: Math.min(t.scale + 0.2, 5)}));
   const handleZoomOut = () => setTransform(t => ({...t, scale: Math.max(t.scale - 0.2, 0.5)}));
@@ -70,12 +81,12 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    
+    if (!effectiveUrl) return;
+
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `ai-generated-${timestamp}.png`;
-    
-    // 使用 normalizeImageUrl 处理 URL
-    const normalizedUrl = normalizeImageUrl(imageUrl);
+
+    const normalizedUrl = normalizeImageUrl(effectiveUrl);
     
     // 如果是 base64 数据，直接下载
     if (normalizedUrl.startsWith('data:')) {
@@ -107,6 +118,8 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
     }
   };
 
+  if (!effectiveUrl) return null;
+
   return (
     <div 
       className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4"
@@ -132,27 +145,44 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
         onClick={(e) => e.stopPropagation()}
         onWheel={handleWheel}
       >
-        {isVideoUrl(imageUrl) ? (
-          /* 🔧 视频预览 */
-          <video
-            src={toAbsoluteFilesUrl(normalizeImageUrl(imageUrl))}
-            controls
-            autoPlay
-            loop
-            className="block rounded-lg shadow-2xl"
-            style={{
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              width: 'auto',
-              height: 'auto',
-            }}
-          />
+        {isVideoUrl(effectiveUrl) ? (
+          videoError ? (
+            <div className="flex flex-col items-center justify-center p-8 bg-gray-800/50 rounded-lg">
+              <p className="text-gray-400 mb-2">视频加载失败</p>
+              <a
+                href={toAbsoluteFilesUrl(normalizeImageUrl(effectiveUrl))}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                在新窗口打开
+              </a>
+            </div>
+          ) : (
+            <video
+              key={effectiveUrl}
+              src={toAbsoluteFilesUrl(normalizeImageUrl(effectiveUrl))}
+              controls
+              autoPlay
+              loop
+              playsInline
+              preload="auto"
+              className="block rounded-lg shadow-2xl"
+              style={{
+                maxWidth: '90vw',
+                maxHeight: '90vh',
+                width: 'auto',
+                height: 'auto',
+              }}
+              onError={() => setVideoError(true)}
+            />
+          )
         ) : imageError ? (
           <div className="flex flex-col items-center justify-center p-8 bg-gray-800/50 rounded-lg">
             <p className="text-gray-400 mb-2">图片加载失败</p>
             <p className="text-xs text-gray-500">第三方图片可能已过期或无法访问</p>
             <a 
-              href={toAbsoluteFilesUrl(normalizeImageUrl(imageUrl))} 
+              href={toAbsoluteFilesUrl(normalizeImageUrl(effectiveUrl))} 
               target="_blank" 
               rel="noopener noreferrer"
               className="mt-3 text-xs text-blue-400 hover:text-blue-300 underline"
@@ -162,22 +192,23 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ imageUrl, 
           </div>
         ) : (
           <img 
-              src={toAbsoluteFilesUrl(normalizeImageUrl(imageUrl))} 
-              alt="Image Preview" 
-              className="block rounded-lg shadow-2xl"
-              style={{ 
-                  maxWidth: '90vw',
-                  maxHeight: '90vh',
-                  width: 'auto',
-                  height: 'auto',
-                  objectFit: 'contain',
-                  transform: `translate(${transform.posX}px, ${transform.posY}px) scale(${transform.scale})`,
-                  cursor: transform.scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-                  transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-              }}
-              draggable={false}
-              onMouseDown={handleMouseDown}
-              onError={() => setImageError(true)}
+            key={effectiveUrl}
+            src={toAbsoluteFilesUrl(normalizeImageUrl(effectiveUrl))} 
+            alt="Image Preview" 
+            className="block rounded-lg shadow-2xl"
+            style={{ 
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              width: 'auto',
+              height: 'auto',
+              objectFit: 'contain',
+              transform: `translate(${transform.posX}px, ${transform.posY}px) scale(${transform.scale})`,
+              cursor: transform.scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+              transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+            }}
+            draggable={false}
+            onMouseDown={handleMouseDown}
+            onError={() => setImageError(true)}
           />
         )}
       </div>

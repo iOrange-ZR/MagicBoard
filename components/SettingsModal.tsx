@@ -97,6 +97,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'error'>('idle');
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
 
+  // 检查更新源：远程 / 局域网（默认优先局域网；局域网路径可改，默认 Z:\huabu-tool）
+  const [updateSource, setUpdateSource] = useState<'remote' | 'lan'>(() => {
+    try {
+      return (localStorage.getItem('update_source') as 'remote' | 'lan') || 'lan';
+    } catch {
+      return 'lan';
+    }
+  });
+  const [lanUpdatePath, setLanUpdatePath] = useState(() => {
+    try {
+      return localStorage.getItem('lan_update_path') || 'Z:\\huabu-tool';
+    } catch {
+      return 'Z:\\huabu-tool';
+    }
+  });
+
   // 存储路径相关状态
   const [storagePath, setStoragePath] = useState<string>('');
   const [isCustomPath, setIsCustomPath] = useState(false);
@@ -130,6 +146,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         const v = parseInt(localStorage.getItem('canvas_undo_max_steps') || '5', 10);
         setCanvasUndoSteps(Math.min(50, Math.max(1, isNaN(v) ? 5 : v)));
       } catch { }
+      const src = localStorage.getItem('update_source') as 'remote' | 'lan' | null;
+      if (src === 'remote' || src === 'lan') setUpdateSource(src);
+      const p = localStorage.getItem('lan_update_path');
+      if (p != null && p !== '') setLanUpdatePath(p);
       const config = getVideoApiConfig();
       setVideoApiConfig({ apiKey: config.apiKey, baseUrl: config.baseUrl || 'https://api.bltcy.ai' });
 
@@ -231,6 +251,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
     setUpdateStatus('checking');
     try {
+      if (updateSource === 'lan') {
+        localStorage.setItem('update_source', 'lan');
+        localStorage.setItem('lan_update_path', lanUpdatePath);
+        const result = await (window as any).electronAPI.checkForUpdatesLan(lanUpdatePath);
+        setUpdateStatus(result.status === 'update-available' ? 'up-to-date' : result.status === 'error' ? 'error' : 'idle');
+        if (result.status === 'update-available') {
+          setSaveSuccessMessage(`发现新版本 v${result.version}，请到 ${result.path} 手动安装`);
+          setTimeout(() => setSaveSuccessMessage(null), 8000);
+        } else if (result.status === 'up-to-date') {
+          setSaveSuccessMessage('已是最新版本');
+          setTimeout(() => setSaveSuccessMessage(null), 2000);
+        } else if (result.status === 'error') {
+          setSaveSuccessMessage(result.message || '检查更新失败');
+          setTimeout(() => setSaveSuccessMessage(null), 3000);
+        }
+        return;
+      }
+      localStorage.setItem('update_source', 'remote');
       const result = await (window as any).electronAPI.checkForUpdates();
       if (result.status === 'dev-mode') {
         setUpdateStatus('idle');
@@ -256,6 +294,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setUpdateStatus('error');
       setSaveSuccessMessage('检查更新失败');
       setTimeout(() => setSaveSuccessMessage(null), 2000);
+    }
+  };
+
+  const handleOpenUpdatePath = () => {
+    if (isElectron && lanUpdatePath.trim()) {
+      (window as any).electronAPI.openExternalPath(lanUpdatePath.trim());
     }
   };
 
@@ -781,6 +825,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* 底部固定区 */}
         <div className="flex-shrink-0 px-6 py-4 border-t" style={{ borderColor: styles.borderLight, background: styles.modalBg }}>
+          {/* 检查更新：更新源（远程 / 局域网），始终显示以便在桌面端可选择 */}
+          <div className="mb-4">
+            <div className="text-xs font-medium mb-2" style={{ color: styles.textSecondary }}>检查更新</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: styles.border }}>
+                <button
+                  type="button"
+                  onClick={() => { setUpdateSource('remote'); localStorage.setItem('update_source', 'remote'); }}
+                  className="px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{
+                    background: updateSource === 'remote' ? styles.primary : styles.cardBg,
+                    color: updateSource === 'remote' ? '#fff' : styles.textSecondary,
+                  }}
+                >
+                  远程
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUpdateSource('lan'); localStorage.setItem('update_source', 'lan'); }}
+                  className="px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{
+                    background: updateSource === 'lan' ? styles.primary : styles.cardBg,
+                    color: updateSource === 'lan' ? '#fff' : styles.textSecondary,
+                  }}
+                >
+                  局域网
+                </button>
+              </div>
+              {updateSource === 'lan' && (
+                <>
+                  <input
+                    type="text"
+                    value={lanUpdatePath}
+                    onChange={(e) => setLanUpdatePath(e.target.value)}
+                    onBlur={() => lanUpdatePath && localStorage.setItem('lan_update_path', lanUpdatePath)}
+                    placeholder="Z:\huabu-tool"
+                    className="flex-1 min-w-[140px] px-2.5 py-1.5 text-xs rounded-lg border focus:outline-none focus:ring-1"
+                    style={{
+                      background: styles.inputBg,
+                      borderColor: styles.border,
+                      color: styles.textPrimary,
+                      minWidth: '160px',
+                    }}
+                  />
+                  {isElectron && (
+                    <button
+                      type="button"
+                      onClick={handleOpenUpdatePath}
+                      className="text-xs px-2 py-1.5 rounded-lg border transition-colors hover:opacity-90"
+                      style={{ borderColor: styles.border, color: styles.primary, background: styles.cardBg }}
+                    >
+                      打开目录
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
           {/* 关于信息 */}
           <div className="footer-info mb-4">
             <div className="flex items-center gap-3">

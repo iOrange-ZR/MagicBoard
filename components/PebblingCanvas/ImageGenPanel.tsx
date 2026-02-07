@@ -1,7 +1,27 @@
-
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CanvasNode, NodeType } from '../../types/pebblingTypes';
 import { Icons } from './Icons';
+
+/** 多图输入缩略图：懒加载 + 错误占位，避免同时加载多张导致卡顿 */
+const MultiInputThumb: React.FC<{ displayUrl: string; index: number; textMuted: string }> = ({ displayUrl, index, textMuted }) => {
+  const [error, setError] = useState(false);
+  return (
+    <div className="w-10 h-10 rounded overflow-hidden shrink-0 bg-black/20 flex items-center justify-center relative">
+      {!error && (
+        <img
+          src={displayUrl}
+          alt=""
+          className="w-full h-full object-cover absolute inset-0"
+          loading="lazy"
+          decoding="async"
+          onError={() => setError(true)}
+        />
+      )}
+      {error && <Icons.Image size={16} className={`${textMuted} shrink-0 relative z-0`} />}
+      <span className="absolute top-0 right-0 min-w-[14px] h-[14px] flex items-center justify-center rounded-bl text-[10px] font-bold bg-blue-500 text-white leading-none" title={`第 ${index + 1} 张`}>{index + 1}</span>
+    </div>
+  );
+};
 
 interface ImageGenPanelProps {
   node: CanvasNode;
@@ -166,7 +186,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         </button>
       </div>
 
-      {/* 多图输入：按顺序的预览，右上角顺序标签（参考可灵 O1，仅顺序无名称与插入） */}
+      {/* 多图输入：按顺序的预览，右上角顺序标签（参考可灵 O1），懒加载与错误占位避免卡顿 */}
       {!isToolboxMode && hasMultiInput && (
         <div className="flex flex-col gap-1">
           <span className={`text-[10px] font-semibold ${textMuted}`}>输入顺序</span>
@@ -174,11 +194,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             {inputImages.map((url, idx) => {
               const displayUrl = url.startsWith('data:') || url.startsWith('http') ? url : (url.startsWith('/files/') ? `${typeof window !== 'undefined' ? window.location.origin : ''}${url}` : url);
               return (
-                <div key={idx} className="w-10 h-10 rounded overflow-hidden shrink-0 bg-black/20 flex items-center justify-center relative">
-                  <img src={displayUrl} alt="" className="w-full h-full object-cover absolute inset-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const next = (e.target as HTMLImageElement).nextElementSibling as HTMLElement; if (next) next.classList.remove('hidden'); }} />
-                  <Icons.Image size={16} className="hidden text-zinc-500 shrink-0 relative z-0" />
-                  <span className="absolute top-0 right-0 min-w-[14px] h-[14px] flex items-center justify-center rounded-bl text-[10px] font-bold bg-blue-500 text-white leading-none" title={`第 ${idx + 1} 张`}>{idx + 1}</span>
-                </div>
+                <MultiInputThumb key={`${idx}-${displayUrl.slice(0, 30)}`} displayUrl={displayUrl} index={idx} textMuted={textMuted} />
               );
             })}
           </div>

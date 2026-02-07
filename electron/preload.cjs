@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // 更新相关
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  checkForUpdatesLan: (lanPath) => ipcRenderer.invoke('check-for-updates-lan', lanPath),
+  openExternalPath: (dirPath) => ipcRenderer.invoke('open-external-path', dirPath),
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, data) => callback(data));
     return () => ipcRenderer.removeAllListeners('update-status');

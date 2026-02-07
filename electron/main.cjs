@@ -1298,7 +1298,7 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
-// 手动检查更新
+// 手动检查更新（远程）
 ipcMain.handle('check-for-updates', async () => {
   if (CONFIG.isDev) {
     return { status: 'dev-mode' };
@@ -1308,6 +1308,66 @@ ipcMain.handle('check-for-updates', async () => {
     return { status: 'checking', version: result?.updateInfo?.version };
   } catch (err) {
     return { status: 'error', message: err.message };
+  }
+});
+
+// 比较版本号 (a > b 返回 1, a === b 返回 0, a < b 返回 -1)
+function compareVersions(a, b) {
+  const pa = (a || '0.0.0').toString().split('.').map(Number);
+  const pb = (b || '0.0.0').toString().split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+// 局域网更新：从指定路径读取版本信息（支持 version.txt 或 latest.yml）
+ipcMain.handle('check-for-updates-lan', async (event, lanPath) => {
+  const dir = (lanPath || 'Z:\\huabu-tool').trim().replace(/^["']|["']$/g, '');
+  if (!dir) {
+    return { status: 'error', message: '请填写局域网更新路径' };
+  }
+  try {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      return { status: 'error', message: '路径不存在或不是文件夹' };
+    }
+    let remoteVersion = null;
+    const versionTxt = path.join(dir, 'version.txt');
+    const latestYml = path.join(dir, 'latest.yml');
+    if (fs.existsSync(versionTxt)) {
+      const content = fs.readFileSync(versionTxt, 'utf-8').trim();
+      const match = content.match(/^(\d+\.\d+\.\d+)/m);
+      if (match) remoteVersion = match[1];
+    }
+    if (!remoteVersion && fs.existsSync(latestYml)) {
+      const content = fs.readFileSync(latestYml, 'utf-8');
+      const match = content.match(/version:\s*['"]?([\d.]+)/);
+      if (match) remoteVersion = match[1];
+    }
+    if (!remoteVersion) {
+      return { status: 'error', message: '该路径下未找到 version.txt 或 latest.yml' };
+    }
+    const current = app.getVersion();
+    if (compareVersions(remoteVersion, current) > 0) {
+      return { status: 'update-available', version: remoteVersion, path: dir };
+    }
+    return { status: 'up-to-date', version: current };
+  } catch (err) {
+    return { status: 'error', message: err.message || '检查失败' };
+  }
+});
+
+// 在资源管理器中打开路径（用于局域网更新目录）
+ipcMain.handle('open-external-path', async (event, dirPath) => {
+  if (!dirPath || typeof dirPath !== 'string') return { success: false };
+  try {
+    const err = await shell.openPath(dirPath);
+    return { success: !err, message: err || undefined };
+  } catch (e) {
+    return { success: false, message: e.message };
   }
 });
 

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy, memo } from 'react';
 import { CanvasNode, NodeType, getNodeTypeColor, KlingO1InputItem } from '../../types/pebblingTypes';
 import { Icons } from './Icons';
 import { ChevronDown, Upload } from 'lucide-react';
@@ -23,6 +23,84 @@ const BananaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14
 
 /** 移除背景节点默认提示词（与后端一致，用于节点上展示） */
 const REMOVE_BG_DEFAULT_PROMPT = 'Remove the background, keep subject on transparent or white background';
+
+/** 预览节点缩略图：进入视口后再加载，避免多图/多视频同时加载导致卡顿 */
+const PreviewThumbnail = memo<{
+  url: string;
+  isVideo: boolean;
+  index: number;
+  isSelected: boolean;
+  isLightCanvas: boolean;
+  onSelect: () => void;
+  nodeId: string;
+}>(({ url, isVideo, isSelected, isLightCanvas, onSelect, index, nodeId }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => setVisible(e.isIntersecting),
+      { rootMargin: '80px', threshold: 0.01 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  const content = !visible ? (
+    <div className="w-full h-full min-h-[40px] flex items-center justify-center" style={{ backgroundColor: isLightCanvas ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)' }}>
+      <Icons.Image size={16} style={{ color: isLightCanvas ? '#9ca3af' : 'rgba(255,255,255,0.3)' }} />
+    </div>
+  ) : isVideo ? (
+    <video
+      src={url}
+      className="w-full h-full object-contain"
+      muted
+      playsInline
+      preload="metadata"
+      aria-label={`预览 ${index + 1}`}
+    />
+  ) : imgError ? (
+    <div className="w-full h-full min-h-[40px] flex items-center justify-center" style={{ backgroundColor: isLightCanvas ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)' }}>
+      <Icons.Image size={16} style={{ color: isLightCanvas ? '#9ca3af' : 'rgba(255,255,255,0.3)' }} />
+    </div>
+  ) : (
+    <img
+      src={url}
+      alt=""
+      className="w-full h-full object-contain"
+      draggable={false}
+      loading="lazy"
+      onError={() => setImgError(true)}
+    />
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      className="relative rounded-lg overflow-hidden cursor-pointer flex items-center justify-center bg-black/20"
+      style={{
+        border: isSelected ? '2px solid #3b82f6' : `1px solid ${isLightCanvas ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
+        minHeight: 60,
+      }}
+    >
+      {content}
+      <span className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: isLightCanvas ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.5)', color: isLightCanvas ? '#374151' : '#e5e7eb' }}>
+        {index + 1}
+      </span>
+      {isSelected && (
+        <div className="absolute top-1 left-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-500 text-white">
+          <Icons.Check size={10} />
+          引用
+        </div>
+      )}
+    </div>
+  );
+});
+PreviewThumbnail.displayName = 'PreviewThumbnail';
 
 /** ComfyUI 单参数输入：IMAGE 类型显示上传/创意库选择，其余为文本/数字输入 */
 const ComfyUISlotInput: React.FC<{
@@ -1582,31 +1660,18 @@ const CanvasNodeItem: React.FC<CanvasNodeProps> = ({
                             {previewItems.map((url, i) => {
                                 const isVideo = url.includes('.mp4') || url.startsWith('data:video') || (node.data?.previewItemTypes?.[i] === 'video');
                                 const isSelected = i === coverIndex;
+                                const stableKey = `${node.id}-${i}-${typeof url === 'string' ? url.slice(-48) : i}`;
                                 return (
-                                    <div
-                                        key={i}
-                                        onClick={(e) => { e.stopPropagation(); setCover(i); }}
-                                        className="relative rounded-lg overflow-hidden cursor-pointer flex items-center justify-center bg-black/20"
-                                        style={{
-                                            border: isSelected ? '2px solid #3b82f6' : `1px solid ${isLightCanvas ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
-                                            minHeight: 60
-                                        }}
-                                    >
-                                        {isVideo ? (
-                                            <video src={url} className="w-full h-full object-contain" muted playsInline preload="metadata" />
-                                        ) : (
-                                            <img src={url} alt="" className="w-full h-full object-contain" draggable={false} />
-                                        )}
-                                        <span className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: isLightCanvas ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.5)', color: isLightCanvas ? '#374151' : '#e5e7eb' }}>
-                                            {i + 1}
-                                        </span>
-                                        {isSelected && (
-                                            <div className="absolute top-1 left-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-500 text-white">
-                                                <Icons.Check size={10} />
-                                                引用
-                                            </div>
-                                        )}
-                                    </div>
+                                    <PreviewThumbnail
+                                        key={stableKey}
+                                        nodeId={node.id}
+                                        url={url}
+                                        isVideo={isVideo}
+                                        index={i}
+                                        isSelected={isSelected}
+                                        isLightCanvas={isLightCanvas}
+                                        onSelect={() => setCover(i)}
+                                    />
                                 );
                             })}
                         </div>
