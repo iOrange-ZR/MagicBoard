@@ -22,7 +22,7 @@ export interface NodeData {
   systemInstruction?: string; // System Context/Persona
   settings?: Record<string, any>;
   files?: Array<{ name: string; type: string; data: string }>; // Base64 files
-  
+
   // 🔥 图片元数据(宽高/大小/格式)
   imageMetadata?: {
     width: number;
@@ -30,12 +30,12 @@ export interface NodeData {
     size: string; // 格式化后的大小, 如 "125 KB"
     format: string; // 图片格式, 如 "PNG", "JPEG"
   };
-  
+
   // Resize Node Specifics
   resizeMode?: 'longest' | 'shortest' | 'width' | 'height' | 'exact';
   resizeWidth?: number;
   resizeHeight?: number;
-  
+
   // MultiAngle Node Specifics
   nodeMode?: '3d' | 'resize'; // 节点模式：3D旋转或调整尺寸
   angleRotate?: number; // 水平旋转角度
@@ -45,7 +45,7 @@ export interface NodeData {
   anglePrompt?: string; // 3D生成提示词
   inputImageUrl?: string; // 输入图片URL
   previewImage?: string; // 预览图片
-  
+
   // Video Node Specifics（统一模型选择：videoModel 为唯一模型 id，family 由常量表推导）
   videoService?: 'sora' | 'veo'; // 兼容旧画布，新画布仅用 videoModel
   videoModel?: string;
@@ -72,13 +72,13 @@ export interface NodeData {
   videoFailReason?: string;
   videoUrl?: string; // 原始URL（下载失败时保留）
   output?: string; // LLM/BP节点输出
-  
+
   // Frame Extractor Node Specifics
   sourceVideoUrl?: string; // 源视频URL
   currentFrameTime?: number; // 当前选中的帧时间（秒）
   videoDuration?: number; // 视频时长（秒）
   frameThumbnails?: string[]; // 帧缩略图列表
-  
+
   // BP Node Specifics - 存储BP创意库配置
   bpTemplate?: {
     id: number;
@@ -123,10 +123,10 @@ export interface NodeData {
   outputType?: string; // 输出文件类型
   coverUrl?: string; // 应用封面URL
   error?: string; // 错误信息
-  
+
   // RH-Main 节点（封面主节点）
   rhMainId?: string; // 关联的 RunningHub 节点 ID
-  
+
   // RH-Param 节点（独立参数 Ticket）
   rhParamInfo?: {
     nodeId: string;       // API 参数的 nodeId
@@ -138,7 +138,7 @@ export interface NodeData {
   };
   rhParentNodeId?: string; // 所属的 rh-main 节点 ID
   rhNextNodeId?: string;   // 下一个 rh-param 节点 ID（串联用）
-  
+
   // Drawing Board Node Specifics
   boardElements?: Array<{
     id: string;
@@ -231,31 +231,31 @@ export const ARCTIC_COLORS = {
   // 冰川蓝 - Image类节点（image/edit/remove-bg/upscale/resize）
   glacierBlue: 'rgb(125, 163, 184)',
   glacierBlueLight: 'rgb(168, 197, 214)',
-  
+
   // 苔原灰绿 - Text类节点
   tundraGreen: 'rgb(158, 179, 168)',
   tundraGreenLight: 'rgb(184, 207, 194)',
-  
+
   // 极光紫灰 - LLM类节点
   auroraViolet: 'rgb(168, 155, 184)',
   auroraVioletLight: 'rgb(194, 184, 207)',
-  
+
   // 冰雪白蓝 - Video类节点
   snowBlue: 'rgb(184, 197, 207)',
   snowBlueLight: 'rgb(209, 220, 229)',
-  
+
   // 冰原灰 - Default/Relay节点
   arcticGray: 'rgb(155, 163, 171)',
   arcticGrayLight: 'rgb(184, 192, 200)',
-  
+
   // BP蓝 - BP节点（智能体模式）
   bpBlue: 'rgb(96, 165, 250)',
   bpBlueLight: 'rgb(147, 197, 253)',
-  
+
   // RunningHub深绿 - RunningHub节点
   rhGreen: 'rgb(16, 185, 129)',
   rhGreenLight: 'rgb(52, 211, 153)',
-  
+
   // 画板橙色 - DrawingBoard节点
   boardOrange: 'rgb(245, 158, 11)',
   boardOrangeLight: 'rgb(251, 191, 36)',
@@ -270,25 +270,25 @@ export const getNodeTypeColor = (type: NodeType): { primary: string; light: stri
     case 'upscale':
     case 'resize':
       return { primary: ARCTIC_COLORS.glacierBlue, light: ARCTIC_COLORS.glacierBlueLight };
-    
+
     case 'text':
       return { primary: ARCTIC_COLORS.tundraGreen, light: ARCTIC_COLORS.tundraGreenLight };
-    
+
     case 'llm':
       return { primary: ARCTIC_COLORS.auroraViolet, light: ARCTIC_COLORS.auroraVioletLight };
-    
+
     case 'video':
     case 'video-output':
     case 'frame-extractor':
       return { primary: ARCTIC_COLORS.snowBlue, light: ARCTIC_COLORS.snowBlueLight };
-    
+
     case 'bp':
       return { primary: ARCTIC_COLORS.bpBlue, light: ARCTIC_COLORS.bpBlueLight };
-    
+
     case 'runninghub':
     case 'rh-config':
       return { primary: ARCTIC_COLORS.rhGreen, light: ARCTIC_COLORS.rhGreenLight };
-    
+
     case 'drawing-board':
       return { primary: ARCTIC_COLORS.boardOrange, light: ARCTIC_COLORS.boardOrangeLight };
 

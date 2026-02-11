@@ -1,5 +1,6 @@
 
 import { GenerationConfig } from '../types/pebblingTypes';
+import { compressImage } from '../utils/image';
 
 // T8star API 配置接口
 export interface ThirdPartyApiConfig {
@@ -76,13 +77,13 @@ async function withRetry<T>(
   signal?: AbortSignal
 ): Promise<T> {
   let lastError: Error | null = null;
-  
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // Check if aborted before each attempt
     if (signal?.aborted) {
       throw new DOMException('Request was aborted', 'AbortError');
     }
-    
+
     try {
       return await fn();
     } catch (error) {
@@ -90,16 +91,16 @@ async function withRetry<T>(
       if ((error as Error).name === 'AbortError') {
         throw error;
       }
-      
+
       lastError = error as Error;
       console.warn(`Attempt ${attempt + 1} failed:`, error);
-      
+
       if (attempt < maxRetries - 1) {
         await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)));
       }
     }
   }
-  
+
   throw lastError || new Error('All retry attempts failed');
 }
 
@@ -107,7 +108,7 @@ async function withRetry<T>(
 
 export const generateCreativeText = async (prompt: string): Promise<{ title: string; content: string }> => {
   const config = getApiConfig();
-  
+
   if (!config.apiKey) {
     return { title: "未配置", content: "请先配置 API Key" };
   }
@@ -116,13 +117,13 @@ export const generateCreativeText = async (prompt: string): Promise<{ title: str
     const requestBody = {
       model: config.chatModel,
       messages: [
-        { 
-          role: 'system', 
-          content: 'You are a creative assistant. Always respond in JSON format with "title" and "content" fields.' 
+        {
+          role: 'system',
+          content: 'You are a creative assistant. Always respond in JSON format with "title" and "content" fields.'
         },
-        { 
-          role: 'user', 
-          content: `Expand this idea creatively: ${prompt}. Return JSON with 'title' and 'content'.` 
+        {
+          role: 'user',
+          content: `Expand this idea creatively: ${prompt}. Return JSON with 'title' and 'content'.`
         }
       ],
       max_tokens: 2000,
@@ -144,7 +145,7 @@ export const generateCreativeText = async (prompt: string): Promise<{ title: str
     }
 
     const data = await response.json();
-    
+
     if (data.choices && data.choices.length > 0) {
       const content = data.choices[0].message.content.trim();
       try {
@@ -170,7 +171,7 @@ export const generateAdvancedLLM = async (
   maxTokens?: number
 ): Promise<string> => {
   const config = getApiConfig();
-  
+
   if (!config.apiKey) {
     return "请先配置 API Key";
   }
@@ -178,13 +179,13 @@ export const generateAdvancedLLM = async (
   try {
     // 构建用户消息内容
     let userContent: any;
-    
+
     if (inputImages && inputImages.length > 0) {
       // 带图片分析
       userContent = [
         { type: 'text', text: userPrompt }
       ];
-      
+
       inputImages.forEach((img, index) => {
         const base64Data = extractBase64(img);
         const mimeType = getMimeType(img);
@@ -225,7 +226,7 @@ export const generateAdvancedLLM = async (
     }
 
     const data = await response.json();
-    
+
     if (data.choices && data.choices.length > 0) {
       return data.choices[0].message.content.trim();
     }
@@ -241,7 +242,7 @@ export const generateAdvancedLLM = async (
 
 export const generateCreativeImage = async (prompt: string, genConfig?: GenerationConfig, signal?: AbortSignal): Promise<string | null> => {
   const config = getApiConfig();
-  
+
   if (!config.apiKey) {
     console.error("API Key 未配置");
     return null;
@@ -312,7 +313,7 @@ export const generateCreativeImage = async (prompt: string, genConfig?: Generati
 
 export const editCreativeImage = async (base64Images: string[], prompt: string, genConfig?: GenerationConfig, signal?: AbortSignal): Promise<string | null> => {
   const config = getApiConfig();
-  
+
   if (!config.apiKey) {
     console.error("API Key 未配置");
     return null;
@@ -340,12 +341,24 @@ export const editCreativeImage = async (base64Images: string[], prompt: string, 
       console.log(`[多图] 检测到 ${base64Images.length} 张图片，已标注顺序:`, imageLabels);
     }
 
+    // 压缩图片以避免 Payload Too Large (128MB limit)
+    const compressedImages = await Promise.all(imageDataUrls.map(async (url) => {
+      try {
+        // 使用 2560px (2.5K) 以保留更多细节，同时确保 14 张图不会超过 128MB
+        // 2560px JPEG 0.85 约为 1-2MB/张，14张约 30-40MB，远低于 128MB 限制
+        return await compressImage(url, 2560);
+      } catch (e) {
+        console.warn('Image compression failed, using original:', e);
+        return url;
+      }
+    }));
+
     // 构建请求体
     const requestBody: any = {
       model: config.model,
       prompt: enhancedPrompt,
       response_format: 'url',
-      image: imageDataUrls
+      image: compressedImages
     };
 
     // AUTO 模式（genConfig 为 undefined）时不传递 aspect_ratio，让 API 根据原图尺寸自动决定
@@ -402,16 +415,16 @@ export const editCreativeImage = async (base64Images: string[], prompt: string, 
 
 export const generateCreativeVideo = async (prompt: string, inputImageBase64?: string): Promise<string | null> => {
   const config = getApiConfig();
-  
+
   // 尝试使用图像生成 API 生成视频的静态预览帧
   if (config.apiKey && prompt) {
     console.warn("视频生成功能暂不支持，将生成静态预览图像");
-    
+
     // 生成视频场景的静态图像作为预览
     try {
       const previewPrompt = `Cinematic still frame from video: ${prompt}. High quality, 16:9 aspect ratio, film quality.`;
       const result = await generateCreativeImage(previewPrompt, { aspectRatio: '16:9', resolution: '1K' });
-      
+
       if (result) {
         // 返回生成的预览图像（用户可以下载或用于其他用途）
         return result;
@@ -420,7 +433,7 @@ export const generateCreativeVideo = async (prompt: string, inputImageBase64?: s
       console.error("Failed to generate video preview:", e);
     }
   }
-  
+
   return null;
 };
 
@@ -428,7 +441,7 @@ export const generateCreativeVideo = async (prompt: string, inputImageBase64?: s
 
 export const checkBalance = async (): Promise<string | null> => {
   const config = getApiConfig();
-  
+
   if (!config.apiKey) {
     return null;
   }

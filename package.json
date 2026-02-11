@@ -1,7 +1,7 @@
 {
   "name": "tafa-aigc-tools",
   "private": true,
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "天津美术学院 · AIGC Tools 创意管理应用",
   "author": "天津美术学院",
   "type": "module",
@@ -26,11 +26,14 @@
     "@types/three": "^0.182.0",
     "@xyflow/react": "^12.10.0",
     "electron-updater": "^6.7.3",
+    "immer": "^11.1.4",
     "jszip": "^3.10.1",
+    "leafer-ui": "^2.0.1",
     "lucide-react": "^0.562.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "three": "^0.182.0"
+    "three": "^0.182.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
