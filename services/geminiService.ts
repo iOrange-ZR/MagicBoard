@@ -4,6 +4,7 @@ import type { GenerateContentResponse, Part } from "@google/genai";
 import { GeneratedContent, CreativeIdea, SmartPlusConfig, BPField, BPAgentModel, ThirdPartyApiConfig, NanoBananaRequest, NanoBananaResponse, OpenAIChatRequest, OpenAIChatResponse, CreativeCategoryType, CREATIVE_CATEGORIES } from '../types';
 import { sanitizeHeaderValue } from '../utils/headers';
 import { compressImage } from '../utils/image';
+import { tryUploadFilesToOss } from './ossService';
 
 let ai: GoogleGenAI | null = null;
 
@@ -175,18 +176,27 @@ export const editImageWithThirdPartyApi = async (
 
   // 如果有上传图片，添加参考图（图生图模式，支持多图）
   if (files.length > 0) {
-    const imagePromises = files.map(async (file) => {
-      const imageBase64 = await fileToBase64(file);
-      const dataUrl = `data:${file.type};base64,${imageBase64}`;
-      try {
-        // 压缩图片，使用 2560px (2.5K) 最大边长
-        return await compressImage(dataUrl, 2560);
-      } catch (e) {
-        console.warn('Image compression failed, using original:', e);
-        return dataUrl;
-      }
-    });
-    requestBody.image = await Promise.all(imagePromises);
+    // 🔄 OSS加速：先尝试上传到OSS
+    const ossUrls = await tryUploadFilesToOss(files);
+    if (ossUrls) {
+      // 使用 OSS URL 模式（payload 从 MB 降至 KB）
+      requestBody.image = ossUrls;
+      console.log(`[OSS] ✅ 使用 ${ossUrls.length} 个 OSS URL 替代 base64`);
+    } else {
+      // 降级：原有 base64 模式
+      const imagePromises = files.map(async (file) => {
+        const imageBase64 = await fileToBase64(file);
+        const dataUrl = `data:${file.type};base64,${imageBase64}`;
+        try {
+          // 压缩图片，使用 2560px (2.5K) 最大边长
+          return await compressImage(dataUrl, 2560);
+        } catch (e) {
+          console.warn('Image compression failed, using original:', e);
+          return dataUrl;
+        }
+      });
+      requestBody.image = await Promise.all(imagePromises);
+    }
 
     // 多图处理：在提示词中标注图片顺序（从上到下连接的顺序 = Image1, Image2, ...）
     if (files.length > 1) {
@@ -279,11 +289,19 @@ export const chatWithThirdPartyApi = async (
 
   if (imageFile) {
     // 分析图片时，content需要是数组格式
-    const imageBase64 = await fileToBase64(imageFile);
-    const imageDataUrl = `data:${imageFile.type};base64,${imageBase64}`;
+    // 🔄 OSS加速：先尝试上传到OSS
+    const ossUrls = await tryUploadFilesToOss([imageFile]);
+    let imageUrl: string;
+    if (ossUrls && ossUrls[0]) {
+      imageUrl = ossUrls[0];
+      console.log('[OSS] ✅ Chat 图片使用 OSS URL');
+    } else {
+      const imageBase64 = await fileToBase64(imageFile);
+      imageUrl = `data:${imageFile.type};base64,${imageBase64}`;
+    }
     userContent = [
       { type: 'text', text: userMessage },
-      { type: 'image_url', image_url: { url: imageDataUrl } }
+      { type: 'image_url', image_url: { url: imageUrl } }
     ];
   } else {
     userContent = userMessage;

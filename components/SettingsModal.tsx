@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getOssConfig, saveOssConfig, testOssConnection, getOssStats, OssConfigStatus, OssStats } from '../services/ossService';
 import { ThirdPartyApiConfig } from '../types';
 import { useTheme, ThemeName } from '../contexts/ThemeContext';
 import { saveSoraConfig } from '../services/soraService';
@@ -121,6 +122,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // RunningHub 相关状态
   const [showRunningHubKey, setShowRunningHubKey] = useState(false);
 
+  // OSS 缓存相关状态
+  const [ossConfig, setOssConfigState] = useState({
+    access_key_id: '',
+    access_key_secret: '',
+    bucket_name: 'batchbox-img-cache',
+    endpoint: 'oss-accelerate.aliyuncs.com',
+    public_endpoint: 'oss-us-west-1.aliyuncs.com',
+  });
+  const [ossStatus, setOssStatus] = useState<OssConfigStatus>({ enabled: false });
+  const [ossStats, setOssStatsState] = useState<OssStats>({ enabled: false, total_images: 0, total_size_mb: 0 });
+  const [ossTesting, setOssTesting] = useState(false);
+  const [showOssSecret, setShowOssSecret] = useState(false);
+
   // 画布撤销步数（1–50，默认 5）
   const [canvasUndoSteps, setCanvasUndoSteps] = useState(() => {
     try {
@@ -179,6 +193,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       fetchRunningHubConfig();
       setUpdateStatus('idle');
+
+      // 获取 OSS 配置状态
+      getOssConfig().then(setOssStatus);
+      getOssStats().then(setOssStatsState);
 
       // 获取存储路径
       if (isElectron) {
@@ -241,6 +259,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setSaveSuccessMessage('保存失败');
     }
     setTimeout(() => setSaveSuccessMessage(null), 2000);
+  };
+
+  // OSS 配置保存
+  const handleSaveOssConfig = async () => {
+    const saved = await saveOssConfig(ossConfig);
+    if (saved) {
+      setSaveSuccessMessage('OSS 缓存配置已保存');
+      getOssConfig().then(setOssStatus);
+      getOssStats().then(setOssStatsState);
+    } else {
+      setSaveSuccessMessage('OSS 配置保存失败');
+    }
+    setTimeout(() => setSaveSuccessMessage(null), 2000);
+  };
+
+  const handleTestOss = async () => {
+    setOssTesting(true);
+    const result = await testOssConnection();
+    setOssTesting(false);
+    if (result.success) {
+      setSaveSuccessMessage('✅ OSS 连接成功');
+    } else {
+      setSaveSuccessMessage(`❌ OSS 连接失败: ${result.error || '未知错误'}`);
+    }
+    setTimeout(() => setSaveSuccessMessage(null), 3000);
   };
 
   const handleCheckUpdate = async () => {
@@ -641,6 +684,101 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button className="btn btn-primary w-full" onClick={handleSaveRunningHubConfig}>
                 保存 RunningHub 配置
               </button>
+            </div>
+          </div>
+
+          {/* OSS CACHE */}
+          <div>
+            <div className="section-title">OSS 图片缓存</div>
+            <div className="config-card">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="option-icon" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                    <line x1="12" y1="22.08" x2="12" y2="12" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold" style={{ color: styles.textPrimary }}>阿里云 OSS 加速</h4>
+                  <p className="text-xs" style={{ color: styles.textSecondary }}>
+                    {ossStatus.enabled
+                      ? `✅ 已启用 · ${ossStats.total_images} 张缓存 · ${ossStats.total_size_mb} MB`
+                      : '未配置 · 图片将直接以 base64 发送'}
+                  </p>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Access Key ID</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={ossConfig.access_key_id}
+                  onChange={(e) => setOssConfigState({ ...ossConfig, access_key_id: e.target.value })}
+                  placeholder="LTAI5t..."
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Access Key Secret</label>
+                <div className="input-with-btn">
+                  <input
+                    type={showOssSecret ? 'text' : 'password'}
+                    className="form-input"
+                    value={ossConfig.access_key_secret}
+                    onChange={(e) => setOssConfigState({ ...ossConfig, access_key_secret: e.target.value })}
+                    placeholder="输入 Access Key Secret"
+                  />
+                  <button className="input-btn" onClick={() => setShowOssSecret(!showOssSecret)}>
+                    {showOssSecret ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Bucket 名称</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={ossConfig.bucket_name}
+                  onChange={(e) => setOssConfigState({ ...ossConfig, bucket_name: e.target.value })}
+                  placeholder="batchbox-img-cache"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">上传端点 (传输加速)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={ossConfig.endpoint}
+                  onChange={(e) => setOssConfigState({ ...ossConfig, endpoint: e.target.value })}
+                  placeholder="oss-accelerate.aliyuncs.com"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">公开访问端点</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={ossConfig.public_endpoint}
+                  onChange={(e) => setOssConfigState({ ...ossConfig, public_endpoint: e.target.value })}
+                  placeholder="oss-us-west-1.aliyuncs.com"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-link flex-1"
+                  onClick={handleTestOss}
+                  disabled={ossTesting || !ossConfig.access_key_id || !ossConfig.access_key_secret}
+                >
+                  {ossTesting ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" /> 测试中...</>
+                  ) : (
+                    '测试连接'
+                  )}
+                </button>
+                <button className="btn btn-primary flex-1" onClick={handleSaveOssConfig}>
+                  保存 OSS 配置
+                </button>
+              </div>
             </div>
           </div>
 

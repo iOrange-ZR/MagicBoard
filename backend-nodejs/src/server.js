@@ -17,6 +17,7 @@ const imageOpsRouter = require('./routes/imageOps');
 const canvasRouter = require('./routes/canvas');
 const runninghubRouter = require('./routes/runninghub');
 const comfyuiRouter = require('./routes/comfyui');
+const ossRouter = require('./routes/oss');
 
 const app = express();
 
@@ -53,24 +54,24 @@ app.use((req, res, next) => {
 
 // ============== 初始化目录和数据文件 ==============
 function initializeApp() {
-  console.log('=' .repeat(50));
+  console.log('='.repeat(50));
   console.log('天津美术学院 · Node.js 后端服务');
-  console.log('=' .repeat(50));
+  console.log('='.repeat(50));
   console.log();
-  
+
   // 创建必要的目录
   FileHandler.ensureDir(config.INPUT_DIR);
   FileHandler.ensureDir(config.OUTPUT_DIR);
   FileHandler.ensureDir(config.THUMBNAILS_DIR);
   FileHandler.ensureDir(config.DATA_DIR);
   FileHandler.ensureDir(config.CREATIVE_IMAGES_DIR);
-  
+
   // 初始化数据文件
   JsonStorage.init(config.CREATIVE_IDEAS_FILE, []);
   JsonStorage.init(config.HISTORY_FILE, []);
   JsonStorage.init(config.SETTINGS_FILE, { theme: 'dark' });
   JsonStorage.init(config.DESKTOP_ITEMS_FILE, []);
-  
+
   console.log();
 }
 
@@ -108,6 +109,7 @@ app.use('/api/image-ops', imageOpsRouter);
 app.use('/api/canvas', canvasRouter);
 app.use('/api/runninghub', runninghubRouter);
 app.use('/api/comfyui', comfyuiRouter);
+app.use('/api/oss', ossRouter);
 
 // 服务状态检查
 app.get('/api/status', (req, res) => {
@@ -131,9 +133,9 @@ app.get('*', (req, res) => {
   if (require('fs').existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
-    res.status(404).json({ 
-      success: false, 
-      error: '前端资源未找到，请先运行 npm run build 构建前端' 
+    res.status(404).json({
+      success: false,
+      error: '前端资源未找到，请先运行 npm run build 构建前端'
     });
   }
 });
@@ -151,7 +153,7 @@ app.use((err, req, res, next) => {
 // ============== 启动服务器 ==============
 function startServer() {
   initializeApp();
-  
+
   const server = app.listen(config.PORT, config.HOST, () => {
     console.log('🚀 服务器启动成功!');
     console.log(`   地址: http://${config.HOST}:${config.PORT}`);
